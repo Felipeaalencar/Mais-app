@@ -136,7 +136,6 @@ function App(){
   const [saved,setSaved]=useState('');
   const [showPDF,setShowPDF]=useState(false);
   const [dbLoad,setDbLoad]=useState(true);
-  const AKEY = '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';
 
   useEffect(()=>{loadP()},[]);
   useEffect(()=>{if(sel)loadA(sel.id)},[sel]);
@@ -149,9 +148,10 @@ function App(){
     if(!caseText.trim())return;
     setLoading(true);setErr(null);setResult(null);setSaved('');
     try{
-      const res=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',headers:{'Content-Type':'application/json','anthropic-version':'2023-06-01','x-api-key':AKEY},body:JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:4096,system:PROMPT,messages:[{role:'user',content:'Analise e retorne apenas JSON:\n\n'+caseText}]})});
+      const res=await fetch('/api/analyze',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({caseText,prompt:PROMPT})});
       if(!res.ok){const t=await res.text();throw new Error('API '+res.status+': '+t.slice(0,200))}
       const data=await res.json();
+      if(data.error)throw new Error(data.error);
       const raw=(data.content||[]).map(b=>b.type==='text'?b.text:'').join('')||'';
       if(!raw.trim())throw new Error('Resposta vazia.');
       const parsed=fixJSON(raw);
