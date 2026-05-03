@@ -40,7 +40,7 @@ const rc  = p => p==='Alta'?'#ef4444':p==='Media'?'#f59e0b':'#22c55e'
 const fmt = d => new Date(d).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'})
 
 function repairJSON(str) {
-  str = str.replace(/```json|```/gi,'').trim()
+  str = str.replace(/```json/gi,'').replace(/```/gi,'').trim()
   try { return JSON.parse(str) } catch(e) {}
   const lc = Math.max(str.lastIndexOf(',"'), str.lastIndexOf(',\n'))
   if (lc > str.length * 0.5) str = str.substring(0, lc)
