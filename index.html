@@ -161,6 +161,28 @@ function PrintView({data,paciente,createdAt,onClose}){
 }
 
 
+
+var STATUS_CFG={
+  estavel:{label:'Estavel',color:'#22c55e',bg:'#022c22',border:'#14532d'},
+  atencao:{label:'Atencao',color:'#f59e0b',bg:'#1c1000',border:'#78350f'},
+  grave:{label:'Grave',color:'#ef4444',bg:'#1c0a0a',border:'#7f1d1d'},
+  critico:{label:'Critico',color:'#ef4444',bg:'#450a0a',border:'#991b1b'},
+};
+var DESFECHO_CFG={
+  alta:{label:'Alta',color:'#22c55e'},
+  transferencia:{label:'Transferido',color:'#f59e0b'},
+  obito:{label:'Obito',color:'#475569'},
+};
+function calcStatus(analises){
+  if(!analises||!analises.length)return 'estavel';
+  var lat=analises[0].resultado_json||{};
+  var q=lat.sepse&&lat.sepse.qsofa?lat.sepse.qsofa.pontos||0:0;
+  var ic=parseFloat(lat.sepse&&lat.sepse.indice_choque?lat.sepse.indice_choque.valor||'0':'0')||0;
+  if(q>=3||ic>=1.5)return 'critico';
+  if(q>=2||ic>=1)return 'grave';
+  if(q>=1)return 'atencao';
+  return 'estavel';
+}
 var RANGES={
   FC:{min:60,max:100,label:'FC',unit:'bpm',color:'#0ea5e9'},
   PAS:{min:90,max:140,label:'PAS',unit:'mmHg',color:'#8b5cf6'},
@@ -243,6 +265,11 @@ function App(){
   const [saved,setSaved]=useState('');
   const [showPDF,setShowPDF]=useState(false);
   const [dbLoad,setDbLoad]=useState(true);
+  const [showDesfecho,setShowDesfecho]=useState(false);
+  const [showStatusEdit,setShowStatusEdit]=useState(false);
+  const [photoLoading,setPhotoLoading]=useState(false);
+  const [photoErr,setPhotoErr]=useState('');
+  const fileRef=React.useRef(null);
   const [isRec,setIsRec]=useState(false);
   const [micErr,setMicErr]=useState("");
   const recRef=React.useRef(null);
@@ -264,6 +291,35 @@ function App(){
       setPatients(prev=>prev.map(p=>p.id===sel.id?data:p));
       setEditPat(false);
     }
+  }
+  async function analyzePhoto(file){
+    if(!file)return;
+    setPhotoLoading(true);setPhotoErr('');
+    try{
+      var reader=new FileReader();
+      reader.onload=async function(e){
+        try{
+          var b64=e.target.result.split(',')[1];
+          var mtype=file.type||'image/jpeg';
+          var res=await fetch('/api/analyze',{
+            method:'POST',
+            headers:{'Content-Type':'application/json'},
+            body:JSON.stringify({caseText:'Extraia todos os exames laboratoriais.',prompt:'Extraia os valores dos exames e retorne JSON com resumo listando cada exame e valor. Estrutura: {"resumo":"","paciente":{"sinais_vitais":{}},"hipoteses":[],"red_flags":[],"lacunas":[],"passos":[],"scores":[],"sepse":{"qsofa":{"pontos":0,"criterios":[],"risco":""},"indice_choque":{"valor":"","interpretacao":""}},"resumo_familiar":"","metas_uti":[],"tendencias":"","urgente":false,"sbar":{"situacao":"","background":"","avaliacao":"","recomendacao":""},"checklist":[]}',imageData:b64,imageType:mtype})
+          });
+          var data=await res.json();
+          if(data.error)throw new Error(data.error);
+          var raw=(data.content||[]).map(function(b){return b.type==='text'?b.text:'';}).join('')||'';
+          var parsed=fixJSON(raw);
+          if(parsed){setCaseText('EXAMES DA FOTO:
+'+parsed.resumo+'
+
+Adicione informacoes clinicas e clique em Analisar caso.');}
+          else{setPhotoErr('Foto nao legivel. Tente novamente.');}
+        }catch(ex){setPhotoErr(ex.message);}
+        setPhotoLoading(false);
+      };
+      reader.readAsDataURL(file);
+    }catch(ex){setPhotoErr(ex.message);setPhotoLoading(false);}
   }
   function toggleMic(){
     setMicErr("");
@@ -292,7 +348,14 @@ function App(){
       const parsed=fixJSON(raw);
       if(!parsed)throw new Error('Erro ao interpretar resposta.');
       setResult(parsed);
-      if(sel){const{data:aData,error}=await db.from('analises').insert({paciente_id:sel.id,caso_texto:caseText,resultado_json:parsed}).select().single();if(!error){setSaved('Salvo - '+fmt(aData.created_at));loadA(sel.id)}}
+      if(sel){const{data:aData,error}=await db.from('analises').insert({paciente_id:sel.id,caso_texto:caseText,resultado_json:parsed}).select().single();if(!error){
+        setSaved('Salvo - '+fmt(aData.created_at));
+        loadA(sel.id);
+        var ns=calcStatus([aData]);
+        db.from('pacientes').update({status_clinico:ns}).eq('id',sel.id);
+        setSel(function(prev){return Object.assign({},prev,{status_clinico:ns});});
+        setPatients(function(prev){return prev.map(function(p){return p.id===sel.id?Object.assign({},p,{status_clinico:ns}):p;});});
+      }}
     }catch(e){setErr(e.message)}
     finally{setLoading(false)}
   }
@@ -330,7 +393,10 @@ function App(){
             {dbLoad&&<div style={{textAlign:'center',padding:'16px',color:'#334155',fontSize:'11px'}}>Carregando...</div>}
             {!dbLoad&&filtered.length===0&&<div style={{fontSize:'11px',color:'#334155',textAlign:'center',padding:'16px 8px'}}>Nenhum paciente.</div>}
             {filtered.map(p=>(<div key={p.id} onClick={()=>{setSel(p);setScreen('patient');setResult(null);setCaseText('');setSelA(null)}} className={'prow'+(sel?.id===p.id?' act':'')}>
-              <div style={{fontWeight:600,fontSize:'12px',color:'#f1f5f9',marginBottom:'1px'}}>{p.nome}</div>
+              <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'2px'}}>
+                <span style={{fontWeight:600,fontSize:'12px',color:'#f1f5f9'}}>{p.nome}</span>
+                <span style={{fontSize:'8px',fontWeight:700,color:p.desfecho?DESFECHO_CFG[p.desfecho].color:STATUS_CFG[p.status_clinico||'estavel'].color,background:p.desfecho?DESFECHO_CFG[p.desfecho].color+'20':STATUS_CFG[p.status_clinico||'estavel'].bg,borderRadius:'3px',padding:'1px 5px'}}>{p.desfecho?DESFECHO_CFG[p.desfecho].label:STATUS_CFG[p.status_clinico||'estavel'].label}</span>
+              </div>
               <div style={{fontSize:'10px',color:'#64748b'}}>{[p.leito,p.setor].filter(Boolean).join(' - ')||'Sem setor'}</div>
               {(analyses[p.id]||[]).length>0&&<div style={{fontSize:'9px',color:'#334155',marginTop:'2px'}}>{(analyses[p.id]||[]).length} analise{(analyses[p.id]||[]).length>1?'s':''}</div>}
             </div>))}
@@ -364,6 +430,8 @@ function App(){
                 {!editPat&&<button className="sbtn" onClick={()=>{setEditN(sel.nome);setEditL(sel.leito||'');setEditS(sel.setor||'');setEditPat(true)}}>Editar</button>}
                 {patA.length>=2&&!editPat&&<button className="sbtn" onClick={()=>setScreen('evolution')}>Evolucao</button>}
                 {patA.length>0&&!editPat&&<button className="sbtn" style={{color:'#38bdf8',borderColor:'#38bdf8'}} onClick={()=>setScreen('dashboard')}>Dashboard</button>}
+                {!editPat&&<button className="sbtn" style={{color:STATUS_CFG[sel.status_clinico||'estavel'].color,borderColor:STATUS_CFG[sel.status_clinico||'estavel'].color}} onClick={()=>setShowStatusEdit(true)}>{STATUS_CFG[sel.status_clinico||'estavel'].label}</button>}
+                {!editPat&&!sel.desfecho&&<button className="sbtn" style={{color:'#64748b'}} onClick={()=>setShowDesfecho(true)}>Desfecho</button>}
                 {!editPat&&<button className="btn" onClick={()=>{setResult(null);setCaseText('');setSaved('');setScreen('new')}}>+ Nova analise</button>}
               </div>
             </div>
@@ -392,6 +460,11 @@ function App(){
                   {isRec&&<span style={{fontSize:'10px',color:'#ef4444'}}>● Gravando...</span>}
                   {micErr&&<span style={{fontSize:'10px',color:'#f59e0b'}}>{micErr}</span>}
                   {!isRec&&!micErr&&<span style={{fontSize:'10px',color:'#334155'}}>{caseText.length} chars</span>}
+                  <input ref={fileRef} type="file" accept="image/*" capture="environment" style={{display:'none'}} onChange={function(e){analyzePhoto(e.target.files[0]);}}/>
+                  <button onClick={function(){if(fileRef.current)fileRef.current.click();}} disabled={photoLoading} style={{background:'#1e293b',border:'none',borderRadius:'50%',width:'36px',height:'36px',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0,opacity:photoLoading?0.5:1}}>
+                    {photoLoading?<span style={{fontSize:'10px',color:'#94a3b8'}}>...</span>:<span style={{fontSize:'18px'}}>📷</span>}
+                  </button>
+                  {photoErr&&<span style={{fontSize:'10px',color:'#f59e0b'}}>{photoErr}</span>}
                 </div>
                 <button className="btn2" onClick={analyze} disabled={loading||caseText.trim().length<10} style={{opacity:loading||caseText.trim().length<10?0.4:1}}>{loading?'Analisando...':'Analisar caso'}</button>
               </div>
