@@ -296,6 +296,7 @@ function App(){
               <div style={{display:'flex',gap:'6px'}}>
                 {!editPat&&<button className="sbtn" onClick={()=>{setEditN(sel.nome);setEditL(sel.leito||'');setEditS(sel.setor||'');setEditPat(true)}}>Editar</button>}
                 {patA.length>=2&&!editPat&&<button className="sbtn" onClick={()=>setScreen('evolution')}>Evolucao</button>}
+                {patA.length>0&&!editPat&&<button className="sbtn" style={{color:'#38bdf8',borderColor:'#38bdf8'}} onClick={()=>setScreen('dashboard')}>Dashboard</button>}
                 {!editPat&&<button className="btn" onClick={()=>{setResult(null);setCaseText('');setSaved('');setScreen('new')}}>+ Nova analise</button>}
               </div>
             </div>
