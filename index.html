@@ -71,6 +71,28 @@ const Sec=({title,icon,accent='#38bdf8',children})=>(
 
 const Tag=({children,color='#38bdf8'})=>(<span style={{display:'inline-block',margin:'2px',padding:'2px 8px',background:color+'18',color,border:'1px solid '+color+'35',borderRadius:'4px',fontSize:'11px'}}>{children}</span>);
 
+
+function MetasItem({m}){
+  const [ok,setOk]=useState(false);
+  return(<div onClick={()=>setOk(!ok)} style={{display:'flex',gap:'10px',padding:'8px 0',borderBottom:'1px solid #1e293b',cursor:'pointer'}}>
+    <div style={{width:'16px',height:'16px',borderRadius:'3px',border:'2px solid '+(ok?'#0ea5e9':'#334155'),background:ok?'#0ea5e9':'transparent',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>{ok&&<span style={{color:'#fff',fontSize:'10px',fontWeight:700}}>v</span>}</div>
+    <span style={{color:ok?'#475569':'#7dd3fc',fontSize:'12px',textDecoration:ok?'line-through':'none'}}>{m}</span>
+  </div>);
+}
+function MetasTab({data}){
+  return(<Sec title="Metas UTI" icon="🎯" accent="#0ea5e9">{(data.metas_uti||[]).map((m,i)=><MetasItem key={i} m={m}/>)}</Sec>);
+}
+function CheckItem({c}){
+  const [done,setDone]=useState(false);
+  return(<div onClick={()=>setDone(!done)} style={{display:'flex',gap:'10px',padding:'8px 0',borderBottom:'1px solid #1e293b',cursor:'pointer'}}>
+    <div style={{width:'16px',height:'16px',borderRadius:'3px',border:'2px solid '+(done?'#34d399':'#334155'),background:done?'#34d399':'transparent',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>{done&&<span style={{color:'#fff',fontSize:'10px',fontWeight:700}}>v</span>}</div>
+    <span style={{color:done?'#475569':'#86efac',fontSize:'12px',textDecoration:done?'line-through':'none'}}>{c}</span>
+  </div>);
+}
+function CheckTab({data}){
+  return(<Sec title="Checklist" icon="✅" accent="#34d399">{(data.checklist||[]).map((c,i)=><CheckItem key={i} c={c}/>)}</Sec>);
+}
+
 function Result({data,onPDF}){
   const [tab,setTab]=useState('resumo');
   const tabs=[{id:'resumo',l:'Resumo',i:'📋'},{id:'hip',l:'Diferenciais',i:'🔬'},{id:'sepse',l:'Sepse',i:'🚨'},{id:'flags',l:'Red Flags',i:'⚑'},{id:'passos',l:'Passos',i:'🗺'},{id:'scores',l:'Scores',i:'📊'},{id:'plantao',l:'Plantao',i:'📝'},{id:'familia',l:'Familia',i:'👪'},{id:'metas',l:'Metas',i:'🎯'},{id:'check',l:'Checklist',i:'✅'}];
@@ -91,8 +113,8 @@ function Result({data,onPDF}){
       {tab==='scores'&&<div>{(data.scores||[]).map((s,i)=>(<Sec key={i} title={s.nome||'Score'} icon="📊" accent="#f472b6"><div style={{display:'flex',alignItems:'center',gap:'14px'}}><div style={{textAlign:'center',minWidth:'50px'}}><div style={{fontSize:'22px',fontWeight:700,color:s.valor&&s.valor!=='null'?'#f472b6':'#475569',lineHeight:1}}>{s.valor&&s.valor!=='null'?s.valor:'N/D'}</div></div><div style={{flex:1,borderLeft:'1px solid #1e293b',paddingLeft:'12px'}}><div style={{color:'#94a3b8',fontSize:'11px'}}>{s.interpretacao}</div></div></div></Sec>))}</div>}
       {tab==='plantao'&&<div><Sec title="SBAR" icon="📝" accent="#a78bfa">{[{l:'S',label:'Situacao',val:data.sbar?.situacao,bg:'#0ea5e9'},{l:'B',label:'Background',val:data.sbar?.background,bg:'#8b5cf6'},{l:'A',label:'Avaliacao',val:data.sbar?.avaliacao,bg:'#f59e0b'},{l:'R',label:'Recomendacao',val:data.sbar?.recomendacao,bg:'#22c55e'}].map(item=>(<div key={item.l} style={{display:'flex',gap:'12px',padding:'10px 0',borderBottom:'1px solid #1e293b',alignItems:'flex-start'}}><div style={{width:'28px',height:'28px',borderRadius:'7px',background:item.bg,display:'flex',alignItems:'center',justifyContent:'center',fontWeight:700,fontSize:'14px',color:'#fff',flexShrink:0}}>{item.l}</div><div style={{flex:1}}><div style={{fontWeight:700,color:'#f1f5f9',fontSize:'12px',marginBottom:'2px'}}>{item.label}</div><div style={{color:'#94a3b8',lineHeight:'1.6',fontSize:'12px'}}>{item.val||'Dados insuficientes.'}</div></div></div>))}</Sec><div style={{textAlign:'center',marginTop:'8px'}}><button className="btn" onClick={onPDF}>Gerar PDF</button></div></div>}
       {tab==='familia'&&<Sec title="Resumo para Familia" icon="👪" accent="#34d399">{data.resumo_familiar?<p style={{color:'#86efac',lineHeight:'1.8',fontSize:'13px'}}>{data.resumo_familiar}</p>:<p style={{color:'#475569',fontSize:'12px'}}>Nao disponivel.</p>}</Sec>}
-      {tab==='metas'&&<Sec title="Metas UTI" icon="🎯" accent="#0ea5e9">{(data.metas_uti||[]).map((m,i)=>{const [ok,setOk]=useState(false);return(<div key={i} onClick={()=>setOk(!ok)} style={{display:'flex',gap:'10px',padding:'8px 0',borderBottom:'1px solid #1e293b',cursor:'pointer'}}><div style={{width:'16px',height:'16px',borderRadius:'3px',border:'2px solid '+(ok?'#0ea5e9':'#334155'),background:ok?'#0ea5e9':'transparent',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>{ok&&<span style={{color:'#fff',fontSize:'10px',fontWeight:700}}>v</span>}</div><span style={{color:ok?'#475569':'#7dd3fc',fontSize:'12px',textDecoration:ok?'line-through':'none'}}>{m}</span></div>)})}</Sec>}
-      {tab==='check'&&<Sec title="Checklist" icon="✅" accent="#34d399">{(data.checklist||[]).map((c,i)=>{const [done,setDone]=useState(false);return(<div key={i} onClick={()=>setDone(!done)} style={{display:'flex',gap:'10px',padding:'8px 0',borderBottom:'1px solid #1e293b',cursor:'pointer'}}><div style={{width:'16px',height:'16px',borderRadius:'3px',border:'2px solid '+(done?'#34d399':'#334155'),background:done?'#34d399':'transparent',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>{done&&<span style={{color:'#fff',fontSize:'10px',fontWeight:700}}>v</span>}</div><span style={{color:done?'#475569':'#86efac',fontSize:'12px',textDecoration:done?'line-through':'none'}}>{c}</span></div>)})}</Sec>}
+      {tab==='metas'&&<MetasTab data={data}/>}
+      {tab==='check'&&<CheckTab data={data}/>}
     </div>
   );
 }
