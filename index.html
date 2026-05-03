@@ -1,13 +1,280 @@
 <!DOCTYPE html>
 <html lang="pt-BR">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="theme-color" content="#020617" />
-    <title>MAIS — inteligência clínica.</title>
-  </head>
-  <body>
-    <div id="root"></div>
-    <script type="module" src="/src/main.jsx"></script>
-  </body>
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>MAIS — inteligencia clinica.</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#020617;color:#cbd5e1;font-family:monospace;font-size:13px;min-height:100vh}
+input:focus,textarea:focus,select:focus{outline:none}
+.btn{background:linear-gradient(135deg,#1D9E75,#0d9488);border:none;cursor:pointer;padding:8px 14px;border-radius:6px;color:#fff;font-weight:700;font-size:12px;font-family:monospace}
+.btn2{background:linear-gradient(135deg,#0ea5e9,#6366f1);border:none;cursor:pointer;padding:9px 20px;border-radius:7px;color:#fff;font-weight:700;font-size:12px;font-family:monospace}
+.sbtn{background:#0f172a;border:1px solid #1e293b;color:#94a3b8;font-size:11px;cursor:pointer;padding:5px 10px;border-radius:5px;font-family:monospace}
+.inp{width:100%;background:#020617;border:1px solid #1e293b;border-radius:5px;padding:7px 9px;color:#cbd5e1;font-size:12px;font-family:monospace}
+.card{background:#0f172a;border:1px solid #1e293b;border-radius:8px;padding:14px;margin-bottom:10px}
+.tab{background:none;border:none;cursor:pointer;padding:5px 9px;border-radius:5px;color:#64748b;font-family:monospace;font-size:10px;white-space:nowrap}
+.tab.on{background:#0ea5e9;color:#fff}
+.prow{padding:9px 10px;border-radius:7px;cursor:pointer;border:1px solid transparent;margin-bottom:3px}
+.prow:hover{background:#0f172a;border-color:#1e293b}
+.prow.act{background:#0f172a;border-color:#1D9E75}
+@keyframes spin{to{transform:rotate(360deg)}}
+@keyframes fin{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:translateY(0)}}
+.fin{animation:fin 0.25s ease}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const {useState,useEffect} = React;
+
+const SUPA_URL = 'https://xyyhxxaxmyicvgijcqau.supabase.co';
+const SUPA_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inh5eWh4eGF4bXlpY3ZnaWpjcWF1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc2Njk5MjksImV4cCI6MjA5MzI0NTkyOX0.yfmTot10KpQTZtztv2y1Jf0DHLgxwIxs3xMe1OgPE9s';
+const db = supabase.createClient(SUPA_URL, SUPA_KEY);
+
+const PROMPT = `Voce e um assistente medico de suporte a decisao clinica hospitalar. Responda SOMENTE com JSON valido, sem markdown. Estrutura: {"resumo":"","paciente":{"idade":"","sexo":"","setor":"","queixa":"","evolucao":"","comorbidades":[],"sinais_vitais":{},"exames":[],"intervencoes":[],"sintomas":[]},"hipoteses":[{"nome":"","prob":"Alta/Media/Baixa","favor":[],"contra":[],"risco":""}],"red_flags":[],"lacunas":[],"passos":[],"scores":[{"nome":"","valor":"","interpretacao":"","faltam":[]}],"sepse":{"qsofa":{"pontos":0,"criterios":[],"risco":""},"indice_choque":{"valor":"","interpretacao":""}},"resumo_familiar":"","metas_uti":[],"tendencias":"","urgente":true,"sbar":{"situacao":"","background":"","avaliacao":"","recomendacao":""},"checklist":[]} Regras: Max 4 hipoteses. Max 6 itens por array. NAO prescreva. NAO feche diagnosticos.`;
+
+const rc = p => p==='Alta'?'#ef4444':p==='Media'?'#f59e0b':'#22c55e';
+const fmt = d => new Date(d).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'});
+
+function fixJSON(s){
+  s=s.replace(/```json|```/gi,'').trim();
+  try{return JSON.parse(s)}catch(e){}
+  const lc=Math.max(s.lastIndexOf(',"'),s.lastIndexOf(',\n'));
+  if(lc>s.length*0.5)s=s.substring(0,lc);
+  const st=[];let inS=false,es=false;
+  for(let i=0;i<s.length;i++){const c=s[i];if(es){es=false;continue}if(c==='\\'&&inS){es=true;continue}if(c==='"'){inS=!inS;continue}if(!inS){if(c==='{'||c==='[')st.push(c==='{'?'}':']');if(c==='}'||c===']')st.pop()}}
+  while(st.length)s+=st.pop();
+  try{return JSON.parse(s)}catch(e){return null}
+}
+
+const Logo=({size=32})=>(
+  <svg width={size} height={size} viewBox="0 0 90 90">
+    <rect width="90" height="90" rx="20" fill="#0f172a"/>
+    <path d="M 6,45 L 12,45 L 15,25 L 25,56 L 35,25 L 45,45 L 50,45 L 54,38 L 57,18 L 62,72 L 66,38 L 70,45 L 82,45" fill="none" stroke="#1D9E75" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/>
+    <circle cx="57" cy="18" r="3.5" fill="#EF9F27"/>
+  </svg>
+);
+
+const Sec=({title,icon,accent='#38bdf8',children})=>(
+  <div style={{background:'#0f172a',border:'1px solid #1e293b',borderLeft:'3px solid '+accent,borderRadius:'8px',padding:'12px 14px',marginBottom:'10px'}}>
+    <div style={{display:'flex',alignItems:'center',gap:'7px',marginBottom:'9px'}}>
+      <span>{icon}</span><span style={{color:accent,fontWeight:700,fontSize:'10px',letterSpacing:'0.1em',textTransform:'uppercase'}}>{title}</span>
+    </div>
+    {children}
+  </div>
+);
+
+const Tag=({children,color='#38bdf8'})=>(<span style={{display:'inline-block',margin:'2px',padding:'2px 8px',background:color+'18',color,border:'1px solid '+color+'35',borderRadius:'4px',fontSize:'11px'}}>{children}</span>);
+
+function Result({data,onPDF}){
+  const [tab,setTab]=useState('resumo');
+  const tabs=[{id:'resumo',l:'Resumo',i:'📋'},{id:'hip',l:'Diferenciais',i:'🔬'},{id:'sepse',l:'Sepse',i:'🚨'},{id:'flags',l:'Red Flags',i:'⚑'},{id:'passos',l:'Passos',i:'🗺'},{id:'scores',l:'Scores',i:'📊'},{id:'plantao',l:'Plantao',i:'📝'},{id:'familia',l:'Familia',i:'👪'},{id:'metas',l:'Metas',i:'🎯'},{id:'check',l:'Checklist',i:'✅'}];
+  const sv=data.paciente?.sinais_vitais||{};
+  const qsofa=data.sepse?.qsofa||{};
+  const ic=data.sepse?.indice_choque||{};
+  return(
+    <div>
+      {data.urgente&&<div style={{background:'#450a0a',border:'1px solid #ef4444',borderRadius:'8px',padding:'10px 14px',marginBottom:'12px',display:'flex',alignItems:'center',gap:'10px'}}><span>🚨</span><div><div style={{color:'#ef4444',fontWeight:700,fontSize:'11px'}}>ATENCAO IMEDIATA</div><div style={{color:'#fca5a5',fontSize:'11px'}}>Avaliacao urgente recomendada.</div></div></div>}
+      {qsofa.pontos>=2&&<div style={{background:'#450a0a',border:'1px solid #ef4444',borderRadius:'8px',padding:'10px 14px',marginBottom:'12px'}}><div style={{color:'#ef4444',fontWeight:700,fontSize:'11px'}}>SEPSE - qSOFA: {qsofa.pontos} pts — {qsofa.risco}</div></div>}
+      {Object.keys(sv).length>0&&<div style={{display:'flex',flexWrap:'wrap',gap:'6px',marginBottom:'12px',background:'#0f172a',border:'1px solid #1e293b',borderRadius:'7px',padding:'10px 12px'}}><div style={{fontSize:'9px',color:'#475569',width:'100%',marginBottom:'3px'}}>SINAIS VITAIS</div>{Object.entries(sv).map(([k,v])=>(<div key={k} style={{background:'#020617',border:'1px solid #1e293b',borderRadius:'5px',padding:'5px 10px',textAlign:'center',minWidth:'58px'}}><div style={{fontSize:'8px',color:'#64748b'}}>{k.toUpperCase()}</div><div style={{fontSize:'12px',fontWeight:700,color:'#38bdf8'}}>{v}</div></div>))}{ic.valor&&<div style={{background:'#1c0a0a',border:'1px solid '+(parseFloat(ic.valor)>=1?'#ef4444':'#334155'),borderRadius:'5px',padding:'5px 10px',textAlign:'center',minWidth:'80px'}}><div style={{fontSize:'8px',color:'#64748b'}}>IND.CHOQUE</div><div style={{fontSize:'12px',fontWeight:700,color:parseFloat(ic.valor)>=1?'#ef4444':'#22c55e'}}>{ic.valor}</div></div>}</div>}
+      <div style={{display:'flex',flexWrap:'wrap',gap:'3px',marginBottom:'12px',background:'#0f172a',border:'1px solid #1e293b',borderRadius:'7px',padding:'5px'}}>{tabs.map(t=><button key={t.id} onClick={()=>setTab(t.id)} className={'tab'+(tab===t.id?' on':'')}>{t.i} {t.l}</button>)}</div>
+      {tab==='resumo'&&<div><Sec title="Resumo" icon="📋" accent="#38bdf8"><p style={{lineHeight:'1.7',color:'#94a3b8',fontSize:'12px'}}>{data.resumo}</p></Sec><div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'10px'}}><Sec title="Paciente" icon="👤" accent="#818cf8"><div style={{fontSize:'11px',lineHeight:1.8}}>{data.paciente?.idade&&<div><span style={{color:'#64748b'}}>Idade: </span>{data.paciente.idade}</div>}{data.paciente?.setor&&<div><span style={{color:'#64748b'}}>Setor: </span>{data.paciente.setor}</div>}{data.paciente?.comorbidades?.length>0&&<div style={{marginTop:'6px'}}><div style={{fontSize:'9px',color:'#64748b',marginBottom:'3px'}}>COMORBIDADES</div>{data.paciente.comorbidades.map(c=><Tag key={c} color="#a78bfa">{c}</Tag>)}</div>}</div></Sec><Sec title="Queixa" icon="🩺" accent="#f472b6"><p style={{color:'#f9a8d4',fontWeight:600,marginBottom:'7px',lineHeight:'1.4',fontSize:'12px'}}>{data.paciente?.queixa}</p>{data.paciente?.sintomas?.map(s=><Tag key={s} color="#22d3ee">{s}</Tag>)}</Sec></div>{data.tendencias&&<Sec title="Tendencias" icon="📈" accent="#34d399"><p style={{color:'#94a3b8',lineHeight:'1.6',fontSize:'12px'}}>{data.tendencias}</p></Sec>}</div>}
+      {tab==='hip'&&<div>{(data.hipoteses||[]).map((h,i)=>(<div key={i} style={{background:'#0f172a',border:'1px solid #1e293b',borderLeft:'4px solid '+rc(h.prob),borderRadius:'7px',padding:'12px 14px',marginBottom:'8px'}}><div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'8px'}}><span style={{fontWeight:700,fontSize:'13px',color:'#f1f5f9'}}>#{i+1} {h.nome}</span><span style={{padding:'1px 9px',borderRadius:'999px',background:rc(h.prob)+'20',color:rc(h.prob),border:'1px solid '+rc(h.prob)+'50',fontSize:'10px',fontWeight:700}}>{h.prob}</span></div><div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'8px',marginBottom:'7px'}}><div><div style={{fontSize:'9px',color:'#22c55e',marginBottom:'3px'}}>A FAVOR</div>{(h.favor||[]).map((a,j)=><div key={j} style={{fontSize:'11px',color:'#86efac',padding:'1px 0'}}>- {a}</div>)}</div><div><div style={{fontSize:'9px',color:'#f59e0b',marginBottom:'3px'}}>CONTRA</div>{(h.contra||[]).map((c,j)=><div key={j} style={{fontSize:'11px',color:'#fcd34d',padding:'1px 0'}}>- {c}</div>)}</div></div>{h.risco&&<div style={{background:'#1c0a0a',borderRadius:'4px',padding:'6px 9px',fontSize:'11px',color:'#fca5a5'}}><span style={{color:'#ef4444',fontWeight:700}}>RISCO: </span>{h.risco}</div>}</div>))}</div>}
+      {tab==='sepse'&&<div><Sec title="qSOFA" icon="🧬" accent={qsofa.pontos>=2?'#ef4444':'#22c55e'}><div style={{display:'flex',alignItems:'center',gap:'16px'}}><div style={{textAlign:'center',minWidth:'60px'}}><div style={{fontSize:'28px',fontWeight:700,color:qsofa.pontos>=2?'#ef4444':'#22c55e',lineHeight:1}}>{qsofa.pontos??'N/D'}</div><div style={{fontSize:'9px',color:'#64748b'}}>pontos</div></div><div style={{flex:1,borderLeft:'1px solid #1e293b',paddingLeft:'12px'}}><div style={{fontSize:'12px',color:'#94a3b8',marginBottom:'6px'}}>{qsofa.risco}</div>{(qsofa.criterios||[]).map((c,i)=><div key={i} style={{fontSize:'11px',color:'#fca5a5',padding:'2px 0'}}>- {c}</div>)}</div></div></Sec>{ic.valor&&<Sec title="Indice de Choque" icon="💓" accent={parseFloat(ic.valor)>=1?'#ef4444':'#22c55e'}><div style={{display:'flex',alignItems:'center',gap:'16px'}}><div style={{fontSize:'28px',fontWeight:700,color:parseFloat(ic.valor)>=1?'#ef4444':'#22c55e'}}>{ic.valor}</div><div style={{color:'#94a3b8',fontSize:'12px',paddingLeft:'12px',borderLeft:'1px solid #1e293b'}}>{ic.interpretacao}</div></div></Sec>}</div>}
+      {tab==='flags'&&<div><Sec title="Red Flags" icon="⚑" accent="#ef4444">{(data.red_flags||[]).map((f,i)=><div key={i} style={{display:'flex',gap:'8px',padding:'7px 0',borderBottom:'1px solid #1e293b'}}><span style={{color:'#ef4444'}}>!</span><span style={{color:'#fca5a5',fontSize:'12px'}}>{f}</span></div>)}</Sec><div style={{padding:'8px',background:'#0f172a',borderRadius:'5px',fontSize:'10px',color:'#334155',lineHeight:'1.7',marginTop:'8px'}}>NAO SUBSTITUI JULGAMENTO CLINICO. NAO FECHA DIAGNOSTICOS. NAO PRESCREVE TRATAMENTOS.</div></div>}
+      {tab==='passos'&&<div><Sec title="Proximos Passos" icon="🗺" accent="#34d399">{(data.passos||[]).map((p,i)=>(<div key={i} style={{display:'flex',gap:'8px',padding:'7px 0',borderBottom:'1px solid #1e293b',alignItems:'flex-start'}}><span style={{background:'#022c22',color:'#34d399',borderRadius:'3px',width:'18px',height:'18px',display:'flex',alignItems:'center',justifyContent:'center',fontSize:'9px',fontWeight:700,flexShrink:0}}>{i+1}</span><span style={{color:'#86efac',fontSize:'12px'}}>{p}</span></div>))}</Sec></div>}
+      {tab==='scores'&&<div>{(data.scores||[]).map((s,i)=>(<Sec key={i} title={s.nome||'Score'} icon="📊" accent="#f472b6"><div style={{display:'flex',alignItems:'center',gap:'14px'}}><div style={{textAlign:'center',minWidth:'50px'}}><div style={{fontSize:'22px',fontWeight:700,color:s.valor&&s.valor!=='null'?'#f472b6':'#475569',lineHeight:1}}>{s.valor&&s.valor!=='null'?s.valor:'N/D'}</div></div><div style={{flex:1,borderLeft:'1px solid #1e293b',paddingLeft:'12px'}}><div style={{color:'#94a3b8',fontSize:'11px'}}>{s.interpretacao}</div></div></div></Sec>))}</div>}
+      {tab==='plantao'&&<div><Sec title="SBAR" icon="📝" accent="#a78bfa">{[{l:'S',label:'Situacao',val:data.sbar?.situacao,bg:'#0ea5e9'},{l:'B',label:'Background',val:data.sbar?.background,bg:'#8b5cf6'},{l:'A',label:'Avaliacao',val:data.sbar?.avaliacao,bg:'#f59e0b'},{l:'R',label:'Recomendacao',val:data.sbar?.recomendacao,bg:'#22c55e'}].map(item=>(<div key={item.l} style={{display:'flex',gap:'12px',padding:'10px 0',borderBottom:'1px solid #1e293b',alignItems:'flex-start'}}><div style={{width:'28px',height:'28px',borderRadius:'7px',background:item.bg,display:'flex',alignItems:'center',justifyContent:'center',fontWeight:700,fontSize:'14px',color:'#fff',flexShrink:0}}>{item.l}</div><div style={{flex:1}}><div style={{fontWeight:700,color:'#f1f5f9',fontSize:'12px',marginBottom:'2px'}}>{item.label}</div><div style={{color:'#94a3b8',lineHeight:'1.6',fontSize:'12px'}}>{item.val||'Dados insuficientes.'}</div></div></div>))}</Sec><div style={{textAlign:'center',marginTop:'8px'}}><button className="btn" onClick={onPDF}>Gerar PDF</button></div></div>}
+      {tab==='familia'&&<Sec title="Resumo para Familia" icon="👪" accent="#34d399">{data.resumo_familiar?<p style={{color:'#86efac',lineHeight:'1.8',fontSize:'13px'}}>{data.resumo_familiar}</p>:<p style={{color:'#475569',fontSize:'12px'}}>Nao disponivel.</p>}</Sec>}
+      {tab==='metas'&&<Sec title="Metas UTI" icon="🎯" accent="#0ea5e9">{(data.metas_uti||[]).map((m,i)=>{const [ok,setOk]=useState(false);return(<div key={i} onClick={()=>setOk(!ok)} style={{display:'flex',gap:'10px',padding:'8px 0',borderBottom:'1px solid #1e293b',cursor:'pointer'}}><div style={{width:'16px',height:'16px',borderRadius:'3px',border:'2px solid '+(ok?'#0ea5e9':'#334155'),background:ok?'#0ea5e9':'transparent',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>{ok&&<span style={{color:'#fff',fontSize:'10px',fontWeight:700}}>v</span>}</div><span style={{color:ok?'#475569':'#7dd3fc',fontSize:'12px',textDecoration:ok?'line-through':'none'}}>{m}</span></div>)})}</Sec>}
+      {tab==='check'&&<Sec title="Checklist" icon="✅" accent="#34d399">{(data.checklist||[]).map((c,i)=>{const [done,setDone]=useState(false);return(<div key={i} onClick={()=>setDone(!done)} style={{display:'flex',gap:'10px',padding:'8px 0',borderBottom:'1px solid #1e293b',cursor:'pointer'}}><div style={{width:'16px',height:'16px',borderRadius:'3px',border:'2px solid '+(done?'#34d399':'#334155'),background:done?'#34d399':'transparent',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>{done&&<span style={{color:'#fff',fontSize:'10px',fontWeight:700}}>v</span>}</div><span style={{color:done?'#475569':'#86efac',fontSize:'12px',textDecoration:done?'line-through':'none'}}>{c}</span></div>)})}</Sec>}
+    </div>
+  );
+}
+
+function PrintView({data,paciente,createdAt,onClose}){
+  const sv=data.paciente?.sinais_vitais||{},sbar=data.sbar||{};
+  const now=createdAt?fmt(createdAt):new Date().toLocaleString('pt-BR');
+  return(<div style={{position:'fixed',inset:0,background:'#fff',zIndex:9999,overflowY:'auto',color:'#111',fontFamily:'Arial,sans-serif',fontSize:'13px'}}>
+    <style>{`@media print{.np{display:none!important}}.ps{border:1px solid #ddd;border-radius:6px;padding:12px;margin-bottom:10px}.pl{font-size:10px;font-weight:700;color:#666;text-transform:uppercase;margin-bottom:5px}`}</style>
+    <div style={{maxWidth:'720px',margin:'0 auto',padding:'20px'}}>
+      <div className="np" style={{display:'flex',gap:'8px',marginBottom:'16px',justifyContent:'flex-end'}}>
+        <button onClick={onClose} style={{background:'#f1f5f9',border:'1px solid #e2e8f0',borderRadius:'6px',padding:'7px 14px',cursor:'pointer'}}>Voltar</button>
+        <button onClick={()=>window.print()} style={{background:'#0ea5e9',border:'none',borderRadius:'6px',padding:'7px 18px',cursor:'pointer',color:'#fff',fontWeight:700}}>Salvar PDF</button>
+      </div>
+      <div style={{background:'#0f172a',borderRadius:'8px',padding:'14px 18px',marginBottom:'14px',display:'flex',alignItems:'center',gap:'14px'}}>
+        <Logo size={40}/>
+        <div><div style={{display:'flex',alignItems:'baseline',gap:'8px'}}><span style={{fontSize:'20px',fontWeight:700,color:'#1D9E75',letterSpacing:'5px'}}>MAIS</span><span style={{fontSize:'10px',color:'#475569'}}>inteligencia clinica.</span></div><div style={{fontSize:'10px',color:'#94a3b8',marginTop:'3px'}}>{now}{paciente&&' - '+paciente.nome}</div></div>
+      </div>
+      {Object.keys(sv).length>0&&<div className="ps"><div className="pl">Sinais Vitais</div><div style={{display:'flex',flexWrap:'wrap',gap:'6px'}}>{Object.entries(sv).map(([k,v])=>(<div key={k} style={{background:'#f1f5f9',border:'1px solid #e2e8f0',borderRadius:'5px',padding:'5px 10px',textAlign:'center',minWidth:'60px'}}><div style={{fontSize:'9px',color:'#666'}}>{k.toUpperCase()}</div><div style={{fontSize:'15px',fontWeight:700,color:'#0284c7'}}>{v}</div></div>))}</div></div>}
+      {(sbar.situacao||sbar.background)&&<div className="ps"><div className="pl">SBAR</div>{[{l:'S',label:'Situacao',val:sbar.situacao,bg:'#0ea5e9'},{l:'B',label:'Background',val:sbar.background,bg:'#8b5cf6'},{l:'A',label:'Avaliacao',val:sbar.avaliacao,bg:'#f59e0b'},{l:'R',label:'Recomendacao',val:sbar.recomendacao,bg:'#22c55e'}].map(item=>item.val&&(<div key={item.l} style={{display:'flex',gap:'10px',padding:'7px 0',borderBottom:'1px solid #eee'}}><div style={{width:'26px',height:'26px',borderRadius:'6px',background:item.bg,display:'flex',alignItems:'center',justifyContent:'center',fontWeight:700,fontSize:'13px',color:'#fff',flexShrink:0}}>{item.l}</div><div><div style={{fontSize:'9px',color:'#666',fontWeight:700,marginBottom:'2px'}}>{item.label}</div><div style={{lineHeight:1.5,fontSize:'12px'}}>{item.val}</div></div></div>))}</div>}
+      {data.red_flags?.length>0&&<div className="ps" style={{background:'#fff5f5',border:'1px solid #fecdd3'}}><div className="pl" style={{color:'#dc2626'}}>Red Flags</div>{data.red_flags.map((f,i)=><div key={i} style={{fontSize:'12px',padding:'3px 0'}}>! {f}</div>)}</div>}
+      {data.passos?.length>0&&<div className="ps"><div className="pl">Proximos Passos</div>{data.passos.map((p,i)=><div key={i} style={{fontSize:'12px',padding:'3px 0'}}>{i+1}. {p}</div>)}</div>}
+      <div style={{marginTop:'12px',padding:'8px',background:'#f8fafc',borderRadius:'5px',fontSize:'10px',color:'#94a3b8',textAlign:'center'}}>Nao substitui julgamento medico. Nao fecha diagnosticos. Nao prescreve tratamentos.</div>
+    </div>
+  </div>);
+}
+
+function App(){
+  const [patients,setPatients]=useState([]);
+  const [sel,setSel]=useState(null);
+  const [analyses,setAnalyses]=useState({});
+  const [screen,setScreen]=useState('home');
+  const [selA,setSelA]=useState(null);
+  const [search,setSearch]=useState('');
+  const [showNP,setShowNP]=useState(false);
+  const [npN,setNpN]=useState('');const [npL,setNpL]=useState('');const [npS,setNpS]=useState('');
+  const [caseText,setCaseText]=useState('');
+  const [loading,setLoading]=useState(false);
+  const [result,setResult]=useState(null);
+  const [err,setErr]=useState(null);
+  const [saved,setSaved]=useState('');
+  const [showPDF,setShowPDF]=useState(false);
+  const [dbLoad,setDbLoad]=useState(true);
+  const AKEY = 'sk-ant-api03-placeholder';
+
+  useEffect(()=>{loadP()},[]);
+  useEffect(()=>{if(sel)loadA(sel.id)},[sel]);
+
+  async function loadP(){setDbLoad(true);const{data}=await db.from('pacientes').select('*').order('created_at',{ascending:false});setPatients(data||[]);setDbLoad(false)}
+  async function loadA(pid){const{data}=await db.from('analises').select('*').eq('paciente_id',pid).order('created_at',{ascending:false});setAnalyses(prev=>({...prev,[pid]:data||[]}))}
+  async function createP(){if(!npN.trim())return;const{data,error}=await db.from('pacientes').insert({nome:npN.trim(),leito:npL.trim(),setor:npS.trim()}).select().single();if(!error){setPatients(prev=>[data,...prev]);setShowNP(false);setNpN('');setNpL('');setNpS('');setSel(data);setScreen('new');setResult(null);setCaseText('')}}
+
+  async function analyze(){
+    if(!caseText.trim())return;
+    setLoading(true);setErr(null);setResult(null);setSaved('');
+    try{
+      const res=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',headers:{'Content-Type':'application/json','anthropic-version':'2023-06-01','x-api-key':AKEY},body:JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:4096,system:PROMPT,messages:[{role:'user',content:'Analise e retorne apenas JSON:\n\n'+caseText}]})});
+      if(!res.ok){const t=await res.text();throw new Error('API '+res.status+': '+t.slice(0,200))}
+      const data=await res.json();
+      const raw=(data.content||[]).map(b=>b.type==='text'?b.text:'').join('')||'';
+      if(!raw.trim())throw new Error('Resposta vazia.');
+      const parsed=fixJSON(raw);
+      if(!parsed)throw new Error('Erro ao interpretar resposta.');
+      setResult(parsed);
+      if(sel){const{data:aData,error}=await db.from('analises').insert({paciente_id:sel.id,caso_texto:caseText,resultado_json:parsed}).select().single();if(!error){setSaved('Salvo - '+fmt(aData.created_at));loadA(sel.id)}}
+    }catch(e){setErr(e.message)}
+    finally{setLoading(false)}
+  }
+
+  const patA=sel?analyses[sel.id]||[]:[];
+  const filtered=patients.filter(p=>p.nome.toLowerCase().includes(search.toLowerCase())||(p.leito||'').toLowerCase().includes(search.toLowerCase()));
+
+  if(showPDF&&(result||selA?.resultado_json))return <PrintView data={result||selA.resultado_json} paciente={sel} createdAt={selA?.created_at} onClose={()=>setShowPDF(false)}/>;
+
+  return(
+    <div style={{minHeight:'100vh',background:'#020617',fontFamily:'monospace',color:'#cbd5e1',fontSize:'13px'}}>
+      <div style={{background:'#0a0f1e',borderBottom:'1px solid #1e293b',padding:'9px 16px',display:'flex',alignItems:'center',gap:'12px',position:'sticky',top:0,zIndex:100}}>
+        <button onClick={()=>{setScreen('home');setSel(null);setResult(null);setCaseText('');setSelA(null)}} style={{background:'none',border:'none',cursor:'pointer',display:'flex',alignItems:'center',gap:'10px',padding:0}}>
+          <Logo size={32}/><div><div style={{fontWeight:700,fontSize:'16px',color:'#1D9E75',letterSpacing:'5px',lineHeight:1}}>MAIS</div><div style={{fontSize:'8px',color:'#475569',letterSpacing:'0.18em',marginTop:'2px'}}>inteligencia clinica.</div></div>
+        </button>
+        <div style={{marginLeft:'auto',display:'flex',gap:'8px'}}>
+          {(result||selA)&&(screen==='new'||screen==='detail')&&<button className="btn" onClick={()=>setShowPDF(true)}>PDF</button>}
+        </div>
+      </div>
+      <div style={{display:'flex',height:'calc(100vh - 52px)'}}>
+        <div style={{width:'210px',flexShrink:0,borderRight:'1px solid #1e293b',background:'#0a0f1e',display:'flex',flexDirection:'column',overflowY:'auto'}}>
+          <div style={{padding:'12px 10px 8px'}}>
+            <div style={{fontSize:'9px',color:'#475569',letterSpacing:'0.15em',marginBottom:'8px'}}>PACIENTES</div>
+            <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Buscar..." className="inp" style={{marginBottom:'7px'}}/>
+            <button className="btn" style={{width:'100%'}} onClick={()=>setShowNP(v=>!v)}>+ Novo paciente</button>
+          </div>
+          {showNP&&<div style={{margin:'0 8px 8px',background:'#0f172a',border:'1px solid #1D9E7540',borderRadius:'7px',padding:'10px'}}>
+            <div style={{fontSize:'10px',color:'#1D9E75',marginBottom:'8px'}}>NOVO PACIENTE</div>
+            {[['Nome *',npN,setNpN,'Maria Silva'],['Leito',npL,setNpL,'Leito 4'],['Setor',npS,setNpS,'UTI']].map(([l,v,fn,ph])=>(<div key={l} style={{marginBottom:'6px'}}><div style={{fontSize:'9px',color:'#64748b',marginBottom:'2px'}}>{l}</div><input value={v} onChange={e=>fn(e.target.value)} placeholder={ph} className="inp"/></div>))}
+            <div style={{display:'flex',gap:'5px',marginTop:'8px'}}>
+              <button className="btn" style={{flex:1,fontSize:'11px',opacity:!npN.trim()?0.4:1}} onClick={createP} disabled={!npN.trim()}>Criar</button>
+              <button className="sbtn" onClick={()=>{setShowNP(false);setNpN('');setNpL('');setNpS('')}}>X</button>
+            </div>
+          </div>}
+          <div style={{flex:1,overflowY:'auto',padding:'0 8px 8px'}}>
+            {dbLoad&&<div style={{textAlign:'center',padding:'16px',color:'#334155',fontSize:'11px'}}>Carregando...</div>}
+            {!dbLoad&&filtered.length===0&&<div style={{fontSize:'11px',color:'#334155',textAlign:'center',padding:'16px 8px'}}>Nenhum paciente.</div>}
+            {filtered.map(p=>(<div key={p.id} onClick={()=>{setSel(p);setScreen('patient');setResult(null);setCaseText('');setSelA(null)}} className={'prow'+(sel?.id===p.id?' act':'')}>
+              <div style={{fontWeight:600,fontSize:'12px',color:'#f1f5f9',marginBottom:'1px'}}>{p.nome}</div>
+              <div style={{fontSize:'10px',color:'#64748b'}}>{[p.leito,p.setor].filter(Boolean).join(' - ')||'Sem setor'}</div>
+              {(analyses[p.id]||[]).length>0&&<div style={{fontSize:'9px',color:'#334155',marginTop:'2px'}}>{(analyses[p.id]||[]).length} analise{(analyses[p.id]||[]).length>1?'s':''}</div>}
+            </div>))}
+          </div>
+        </div>
+        <div style={{flex:1,overflowY:'auto',padding:'16px'}}>
+          {screen==='home'&&<div style={{display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',height:'70%',gap:'14px',textAlign:'center'}}><Logo size={48}/><div style={{fontSize:'11px',color:'#1e293b',letterSpacing:'0.1em',lineHeight:2}}>SELECIONE OU CRIE UM PACIENTE<br/>PARA INICIAR A ANALISE</div></div>}
+          {screen==='patient'&&sel&&<div className="fin">
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:'16px',flexWrap:'wrap',gap:'10px'}}>
+              <div><div style={{fontSize:'16px',fontWeight:700,color:'#f1f5f9'}}>{sel.nome}</div><div style={{fontSize:'11px',color:'#64748b',marginTop:'2px'}}>{[sel.leito,sel.setor].filter(Boolean).join(' - ')||'Sem setor'}</div></div>
+              <div style={{display:'flex',gap:'6px'}}>
+                {patA.length>=2&&<button className="sbtn" onClick={()=>setScreen('evolution')}>Evolucao</button>}
+                <button className="btn" onClick={()=>{setResult(null);setCaseText('');setSaved('');setScreen('new')}}>+ Nova analise</button>
+              </div>
+            </div>
+            {patA.length===0&&<div style={{background:'#0f172a',border:'1px dashed #1e293b',borderRadius:'8px',padding:'32px',textAlign:'center'}}><div style={{fontSize:'12px',color:'#334155',marginBottom:'12px'}}>Nenhuma analise ainda.</div><button className="btn" onClick={()=>{setResult(null);setCaseText('');setSaved('');setScreen('new')}}>+ Criar primeira analise</button></div>}
+            {patA.map(a=>(<div key={a.id} onClick={()=>{setSelA(a);setResult(a.resultado_json);setScreen('detail')}} style={{background:'#0f172a',border:'1px solid #1e293b',borderRadius:'7px',padding:'12px 14px',marginBottom:'8px',cursor:'pointer'}}>
+              <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'7px'}}><span style={{fontSize:'11px',color:'#38bdf8',fontWeight:600}}>{fmt(a.created_at)}</span>{a.resultado_json?.urgente&&<span style={{fontSize:'9px',background:'#ef444420',color:'#ef4444',border:'1px solid #ef444440',borderRadius:'20px',padding:'1px 7px'}}>urgente</span>}</div>
+              <p style={{fontSize:'11px',color:'#94a3b8',lineHeight:'1.5'}}>{a.resultado_json?.resumo?.slice(0,150)}...</p>
+            </div>))}
+          </div>}
+          {screen==='new'&&sel&&<div className="fin">
+            <div style={{display:'flex',alignItems:'center',gap:'10px',marginBottom:'16px'}}>
+              <button className="sbtn" onClick={()=>{setScreen('patient');setResult(null);setCaseText('')}}>Voltar</button>
+              <div><div style={{fontSize:'13px',fontWeight:600,color:'#f1f5f9'}}>Nova analise</div><div style={{fontSize:'10px',color:'#64748b'}}>{sel.nome}</div></div>
+            </div>
+            <div className="card">
+              <div style={{fontSize:'10px',color:'#38bdf8',letterSpacing:'0.12em',textTransform:'uppercase',fontWeight:700,marginBottom:'9px'}}>Caso Clinico</div>
+              <textarea value={caseText} onChange={e=>setCaseText(e.target.value)} placeholder="Digite ou dite o caso pelo microfone do teclado..." className="inp" style={{minHeight:'100px',resize:'vertical',lineHeight:'1.6',padding:'9px'}}/>
+              <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginTop:'9px'}}>
+                <span style={{fontSize:'10px',color:'#334155'}}>{caseText.length} chars</span>
+                <button className="btn2" onClick={analyze} disabled={loading||caseText.trim().length<10} style={{opacity:loading||caseText.trim().length<10?0.4:1}}>{loading?'Analisando...':'Analisar caso'}</button>
+              </div>
+            </div>
+            {err&&<div style={{background:'#450a0a',border:'1px solid #ef444460',borderRadius:'6px',padding:'10px 14px',marginBottom:'10px',fontSize:'11px',color:'#fda4af',wordBreak:'break-all'}}>ERRO: {err}</div>}
+            {saved&&<div style={{background:'#022c22',border:'1px solid #14532d',borderRadius:'6px',padding:'9px 12px',marginBottom:'10px',fontSize:'11px',color:'#86efac'}}>{saved}</div>}
+            {loading&&<div style={{display:'flex',flexDirection:'column',alignItems:'center',padding:'36px',gap:'12px'}}><div style={{width:'32px',height:'32px',border:'3px solid #1e293b',borderTop:'3px solid #0ea5e9',borderRadius:'50%',animation:'spin 1s linear infinite'}}/><span style={{color:'#475569',fontSize:'11px'}}>PROCESSANDO...</span></div>}
+            {result&&!loading&&<Result data={result} onPDF={()=>setShowPDF(true)}/>}
+          </div>}
+          {screen==='detail'&&selA&&<div className="fin">
+            <div style={{display:'flex',alignItems:'center',gap:'10px',marginBottom:'16px',flexWrap:'wrap'}}>
+              <button className="sbtn" onClick={()=>{setScreen('patient');setSelA(null);setResult(null)}}>Voltar</button>
+              <div style={{flex:1}}><div style={{fontSize:'13px',fontWeight:600,color:'#f1f5f9'}}>{sel?.nome}</div><div style={{fontSize:'10px',color:'#64748b'}}>{fmt(selA.created_at)}</div></div>
+              <button className="btn" onClick={()=>setShowPDF(true)}>PDF</button>
+            </div>
+            <Result data={selA.resultado_json} onPDF={()=>setShowPDF(true)}/>
+          </div>}
+          {screen==='evolution'&&sel&&<div className="fin">
+            <div style={{display:'flex',alignItems:'center',gap:'10px',marginBottom:'16px'}}>
+              <button className="sbtn" onClick={()=>setScreen('patient')}>Voltar</button>
+              <div style={{fontSize:'13px',fontWeight:600,color:'#f1f5f9'}}>{sel.nome}</div>
+            </div>
+            {patA.length<2&&<div style={{textAlign:'center',padding:'32px',color:'#475569',fontSize:'12px'}}>Sao necessarias pelo menos 2 analises.</div>}
+            {[...patA].sort((a,b)=>new Date(a.created_at)-new Date(b.created_at)).map((a,i,arr)=>{
+              const isLast=i===arr.length-1,curr=a.resultado_json,sv=curr?.paciente?.sinais_vitais||{};
+              return(<div key={a.id} style={{display:'flex',gap:'12px',marginBottom:'6px'}}>
+                <div style={{display:'flex',flexDirection:'column',alignItems:'center',flexShrink:0}}>
+                  <div style={{width:'10px',height:'10px',borderRadius:'50%',background:isLast?'#22c55e':'#38bdf8',marginTop:'12px'}}/>
+                  {!isLast&&<div style={{width:'2px',flex:1,background:'#1e293b',marginTop:'3px'}}/>}
+                </div>
+                <div style={{flex:1,background:'#0f172a',border:'1px solid #1e293b',borderRadius:'7px',padding:'12px',marginBottom:'3px'}}>
+                  <div style={{display:'flex',justifyContent:'space-between',marginBottom:'7px'}}>
+                    <span style={{fontSize:'11px',color:'#64748b'}}>{fmt(a.created_at)}</span>
+                    {isLast&&<span style={{fontSize:'9px',background:'#22c55e20',color:'#22c55e',border:'1px solid #22c55e40',borderRadius:'20px',padding:'1px 7px'}}>atual</span>}
+                  </div>
+                  <p style={{fontSize:'11px',color:'#94a3b8',lineHeight:'1.5',marginBottom:'8px'}}>{curr?.resumo?.slice(0,140)}...</p>
+                  {Object.keys(sv).length>0&&<div style={{display:'flex',flexWrap:'wrap',gap:'5px'}}>{Object.entries(sv).map(([k,v])=>(<div key={k} style={{background:'#020617',border:'1px solid #1e293b',borderRadius:'5px',padding:'3px 9px',textAlign:'center',minWidth:'55px'}}><div style={{fontSize:'8px',color:'#64748b'}}>{k.toUpperCase()}</div><div style={{fontSize:'11px',fontWeight:700,color:'#38bdf8'}}>{v}</div></div>))}</div>}
+                </div>
+              </div>);
+            })}
+          </div>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+</script>
+</body>
 </html>
