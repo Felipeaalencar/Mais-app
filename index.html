@@ -250,6 +250,7 @@ function App(){
   const [saved,setSaved]=useState('');
   const [showPDF,setShowPDF]=useState(false);
   const [dbLoad,setDbLoad]=useState(true);
+  const [showDesfecho,setShowDesfecho]=useState(false);
   const [isRec,setIsRec]=useState(false);
   const [micErr,setMicErr]=useState("");
   const recRef=React.useRef(null);
@@ -375,6 +376,8 @@ function App(){
                 {patA.length>=2&&!editPat&&<button className="sbtn" onClick={()=>setScreen('evolution')}>Evolucao</button>}
                 {patA.length>0&&!editPat&&<button className="sbtn" style={{color:'#38bdf8',borderColor:'#38bdf8'}} onClick={()=>setScreen('dashboard')}>Dashboard</button>}
                 {!editPat&&<button className="btn" onClick={()=>{setResult(null);setCaseText('');setSaved('');setScreen('new')}}>+ Nova analise</button>}
+                {!editPat&&!sel.desfecho&&<button className="sbtn" style={{color:'#64748b'}} onClick={()=>setShowDesfecho(true)}>Desfecho</button>}
+                {!editPat&&sel.desfecho&&<span style={{fontSize:'10px',fontWeight:700,padding:'3px 8px',borderRadius:'5px',color:sel.desfecho==='alta'?'#22c55e':sel.desfecho==='transferencia'?'#f59e0b':'#94a3b8',background:sel.desfecho==='alta'?'#022c22':sel.desfecho==='transferencia'?'#1c1000':'#1e293b'}}>{sel.desfecho==='alta'?'Alta':sel.desfecho==='transferencia'?'Transferido':'Obito'}</span>}
               </div>
             </div>
             {patA.length===0&&<div style={{background:'#0f172a',border:'1px dashed #1e293b',borderRadius:'8px',padding:'32px',textAlign:'center'}}><div style={{fontSize:'12px',color:'#334155',marginBottom:'12px'}}>Nenhuma analise ainda.</div><button className="btn" onClick={()=>{setResult(null);setCaseText('');setSaved('');setScreen('new')}}>+ Criar primeira analise</button></div>}
