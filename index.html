@@ -158,12 +158,25 @@ function App(){
   const [saved,setSaved]=useState('');
   const [showPDF,setShowPDF]=useState(false);
   const [dbLoad,setDbLoad]=useState(true);
+  const [editPat,setEditPat]=useState(false);
+  const [editN,setEditN]=useState('');
+  const [editL,setEditL]=useState('');
+  const [editS,setEditS]=useState('');
 
   useEffect(()=>{loadP()},[]);
   useEffect(()=>{if(sel)loadA(sel.id)},[sel]);
 
   async function loadP(){setDbLoad(true);const{data}=await db.from('pacientes').select('*').order('created_at',{ascending:false});setPatients(data||[]);setDbLoad(false)}
   async function loadA(pid){const{data}=await db.from('analises').select('*').eq('paciente_id',pid).order('created_at',{ascending:false});setAnalyses(prev=>({...prev,[pid]:data||[]}))}
+  async function saveEditPat(){
+    if(!editN.trim())return;
+    const{data,error}=await db.from('pacientes').update({nome:editN.trim(),leito:editL.trim(),setor:editS.trim()}).eq('id',sel.id).select().single();
+    if(!error){
+      setSel(data);
+      setPatients(prev=>prev.map(p=>p.id===sel.id?data:p));
+      setEditPat(false);
+    }
+  }
   async function createP(){if(!npN.trim())return;const{data,error}=await db.from('pacientes').insert({nome:npN.trim(),leito:npL.trim(),setor:npS.trim()}).select().single();if(!error){setPatients(prev=>[data,...prev]);setShowNP(false);setNpN('');setNpL('');setNpS('');setSel(data);setScreen('new');setResult(null);setCaseText('')}}
 
   async function analyze(){
@@ -228,10 +241,30 @@ function App(){
           {screen==='home'&&<div style={{display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',height:'70%',gap:'14px',textAlign:'center'}}><Logo size={48}/><div style={{fontSize:'11px',color:'#1e293b',letterSpacing:'0.1em',lineHeight:2}}>SELECIONE OU CRIE UM PACIENTE<br/>PARA INICIAR A ANALISE</div></div>}
           {screen==='patient'&&sel&&<div className="fin">
             <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:'16px',flexWrap:'wrap',gap:'10px'}}>
-              <div><div style={{fontSize:'16px',fontWeight:700,color:'#f1f5f9'}}>{sel.nome}</div><div style={{fontSize:'11px',color:'#64748b',marginTop:'2px'}}>{[sel.leito,sel.setor].filter(Boolean).join(' - ')||'Sem setor'}</div></div>
+              <div>
+                {!editPat ? (
+                  <div>
+                    <div style={{fontSize:'16px',fontWeight:700,color:'#f1f5f9'}}>{sel.nome}</div>
+                    <div style={{fontSize:'11px',color:'#64748b',marginTop:'2px'}}>{[sel.leito,sel.setor].filter(Boolean).join(' - ')||'Sem setor'}</div>
+                  </div>
+                ) : (
+                  <div style={{display:'flex',flexDirection:'column',gap:'6px'}}>
+                    <input className="inp" value={editN} onChange={e=>setEditN(e.target.value)} placeholder="Nome"/>
+                    <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'6px'}}>
+                      <input className="inp" value={editL} onChange={e=>setEditL(e.target.value)} placeholder="Leito"/>
+                      <input className="inp" value={editS} onChange={e=>setEditS(e.target.value)} placeholder="Setor"/>
+                    </div>
+                    <div style={{display:'flex',gap:'6px'}}>
+                      <button className="btn" style={{fontSize:'11px'}} onClick={saveEditPat}>Salvar</button>
+                      <button className="sbtn" onClick={()=>setEditPat(false)}>Cancelar</button>
+                    </div>
+                  </div>
+                )}
+              </div>
               <div style={{display:'flex',gap:'6px'}}>
-                {patA.length>=2&&<button className="sbtn" onClick={()=>setScreen('evolution')}>Evolucao</button>}
-                <button className="btn" onClick={()=>{setResult(null);setCaseText('');setSaved('');setScreen('new')}}>+ Nova analise</button>
+                {!editPat&&<button className="sbtn" onClick={()=>{setEditN(sel.nome);setEditL(sel.leito||'');setEditS(sel.setor||'');setEditPat(true)}}>Editar</button>}
+                {patA.length>=2&&!editPat&&<button className="sbtn" onClick={()=>setScreen('evolution')}>Evolucao</button>}
+                {!editPat&&<button className="btn" onClick={()=>{setResult(null);setCaseText('');setSaved('');setScreen('new')}}>+ Nova analise</button>}
               </div>
             </div>
             {patA.length===0&&<div style={{background:'#0f172a',border:'1px dashed #1e293b',borderRadius:'8px',padding:'32px',textAlign:'center'}}><div style={{fontSize:'12px',color:'#334155',marginBottom:'12px'}}>Nenhuma analise ainda.</div><button className="btn" onClick={()=>{setResult(null);setCaseText('');setSaved('');setScreen('new')}}>+ Criar primeira analise</button></div>}
