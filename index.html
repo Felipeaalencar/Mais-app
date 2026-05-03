@@ -158,6 +158,9 @@ function App(){
   const [saved,setSaved]=useState('');
   const [showPDF,setShowPDF]=useState(false);
   const [dbLoad,setDbLoad]=useState(true);
+  const [isRec,setIsRec]=useState(false);
+  const [micErr,setMicErr]=useState('');
+  const recRef=React.useRef(null);
   const [editPat,setEditPat]=useState(false);
   const [editN,setEditN]=useState('');
   const [editL,setEditL]=useState('');
@@ -178,6 +181,31 @@ function App(){
     }
   }
   async function createP(){if(!npN.trim())return;const{data,error}=await db.from('pacientes').insert({nome:npN.trim(),leito:npL.trim(),setor:npS.trim()}).select().single();if(!error){setPatients(prev=>[data,...prev]);setShowNP(false);setNpN('');setNpL('');setNpS('');setSel(data);setScreen('new');setResult(null);setCaseText('')}}
+
+  function toggleMic(){
+    setMicErr('');
+    if(isRec){
+      if(recRef.current) recRef.current.stop();
+      setIsRec(false);
+      return;
+    }
+    const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+    if(!SR){setMicErr('Use o microfone do teclado iOS');return;}
+    const r=new SR();
+    r.lang='pt-BR';r.continuous=true;r.interimResults=true;
+    r.onstart=()=>setIsRec(true);
+    r.onend=()=>setIsRec(false);
+    r.onerror=(e)=>{setIsRec(false);setMicErr('Erro microfone: '+e.error);};
+    r.onresult=(e)=>{
+      let txt='';
+      for(let i=e.resultIndex;i<e.results.length;i++){
+        if(e.results[i].isFinal)txt+=e.results[i][0].transcript+' ';
+      }
+      if(txt)setCaseText(prev=>(prev+txt).trim()+' ');
+    };
+    recRef.current=r;
+    r.start();
+  }
 
   async function analyze(){
     if(!caseText.trim())return;
@@ -264,6 +292,7 @@ function App(){
               <div style={{display:'flex',gap:'6px'}}>
                 {!editPat&&<button className="sbtn" onClick={()=>{setEditN(sel.nome);setEditL(sel.leito||'');setEditS(sel.setor||'');setEditPat(true)}}>Editar</button>}
                 {patA.length>=2&&!editPat&&<button className="sbtn" onClick={()=>setScreen('evolution')}>Evolucao</button>}
+                {patA.length>0&&!editPat&&<button className="sbtn" style={{color:'#38bdf8',borderColor:'#38bdf8'}} onClick={()=>setScreen('dashboard')}>Dashboard</button>}
                 {!editPat&&<button className="btn" onClick={()=>{setResult(null);setCaseText('');setSaved('');setScreen('new')}}>+ Nova analise</button>}
               </div>
             </div>
@@ -281,8 +310,18 @@ function App(){
             <div className="card">
               <div style={{fontSize:'10px',color:'#38bdf8',letterSpacing:'0.12em',textTransform:'uppercase',fontWeight:700,marginBottom:'9px'}}>Caso Clinico</div>
               <textarea value={caseText} onChange={e=>setCaseText(e.target.value)} placeholder="Digite ou dite o caso pelo microfone do teclado..." className="inp" style={{minHeight:'100px',resize:'vertical',lineHeight:'1.6',padding:'9px'}}/>
-              <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginTop:'9px'}}>
-                <span style={{fontSize:'10px',color:'#334155'}}>{caseText.length} chars</span>
+              <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginTop:'9px',gap:'8px'}}>
+                <div style={{display:'flex',alignItems:'center',gap:'8px'}}>
+                  <button onClick={toggleMic} title={isRec?'Parar':'Gravar'} style={{background:isRec?'#ef4444':'#1e293b',border:'none',borderRadius:'50%',width:'36px',height:'36px',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0,boxShadow:isRec?'0 0 0 5px #ef444430':''}} >
+                    {isRec
+                      ? <svg width="14" height="14" viewBox="0 0 24 24" fill="#fff"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>
+                      : <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" strokeWidth="2" strokeLinecap="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
+                    }
+                  </button>
+                  {isRec&&<span style={{fontSize:'10px',color:'#ef4444'}}>● Gravando...</span>}
+                  {micErr&&<span style={{fontSize:'10px',color:'#f59e0b'}}>{micErr}</span>}
+                  {!isRec&&!micErr&&<span style={{fontSize:'10px',color:'#334155'}}>{caseText.length} chars</span>}
+                </div>
                 <button className="btn2" onClick={analyze} disabled={loading||caseText.trim().length<10} style={{opacity:loading||caseText.trim().length<10?0.4:1}}>{loading?'Analisando...':'Analisar caso'}</button>
               </div>
             </div>
@@ -299,6 +338,74 @@ function App(){
             </div>
             <Result data={selA.resultado_json} onPDF={()=>setShowPDF(true)}/>
           </div>}
+          {screen==='dashboard'&&sel&&<div className="fin">
+            <div style={{display:'flex',alignItems:'center',gap:'10px',marginBottom:'16px'}}>
+              <button className="sbtn" onClick={()=>setScreen('patient')}>Voltar</button>
+              <div style={{fontSize:'13px',fontWeight:600,color:'#f1f5f9'}}>Dashboard — {sel.nome}</div>
+            </div>
+            {patA.length===0&&<div style={{textAlign:'center',padding:'32px',color:'#475569',fontSize:'12px'}}>Nenhuma analise para exibir.</div>}
+            {patA.length>0&&(()=>{
+              const latest=patA[0].resultado_json||{};
+              const sv=latest.paciente?.sinais_vitais||{};
+              const qsofaPts=latest.sepse?.qsofa?.pontos??0;
+              const qsofaRisk=latest.sepse?.qsofa?.risco||'';
+              const ic=latest.sepse?.indice_choque?.valor||'';
+              const allSV=patA.map(a=>a.resultado_json?.paciente?.sinais_vitais||{});
+              function svHist(k){return allSV.map(s=>parseFloat(s[k])).filter(v=>!isNaN(v));}
+              function svTrend(k){const h=svHist(k);if(h.length<2)return'─';return h[h.length-1]>h[h.length-2]?'↑':'↓';}
+              const VITALS=[
+                {k:'FC',l:'FC',u:'bpm',bad:v=>v>100||v<50},
+                {k:'PAS',l:'PAS',u:'mmHg',bad:v=>v<90},
+                {k:'FR',l:'FR',u:'irpm',bad:v=>v>=22},
+                {k:'SpO2',l:'SpO₂',u:'%',bad:v=>v<90},
+                {k:'Glasgow',l:'GCS',u:'',bad:v=>v<13},
+              ];
+              return(<div>
+                <div style={{background:'#0f172a',border:'1px solid #1e293b',borderRadius:'10px',padding:'14px',marginBottom:'12px'}}>
+                  <div style={{fontSize:'10px',color:'#38bdf8',letterSpacing:'0.12em',textTransform:'uppercase',fontWeight:700,marginBottom:'12px'}}>Sinais Vitais — {patA[0].created_at?new Date(patA[0].created_at).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}):''}</div>
+                  <div style={{display:'grid',gridTemplateColumns:'repeat(5,1fr)',gap:'8px'}}>
+                    {VITALS.map(v=>{
+                      const val=sv[v.k];
+                      if(!val)return null;
+                      const num=parseFloat(val);
+                      const bad=v.bad(num);
+                      const color=bad?'#ef4444':'#22c55e';
+                      const t=svTrend(v.k);
+                      const tColor=t==='─'?'#475569':v.k==='FC'||v.k==='FR'?(t==='↑'?'#ef4444':'#22c55e'):(t==='↑'?'#22c55e':'#ef4444');
+                      return(<div key={v.k} style={{background:'#020617',border:'1px solid '+color+'40',borderRadius:'8px',padding:'10px',textAlign:'center'}}>
+                        <div style={{fontSize:'9px',color:'#64748b',marginBottom:'3px'}}>{v.l}</div>
+                        <div style={{fontSize:'20px',fontWeight:700,color,lineHeight:1}}>{val}<span style={{fontSize:'12px',color:tColor,marginLeft:'2px'}}>{t}</span></div>
+                        <div style={{fontSize:'9px',color:'#475569',marginTop:'2px'}}>{v.u}</div>
+                      </div>);
+                    })}
+                  </div>
+                </div>
+                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'10px',marginBottom:'12px'}}>
+                  <div style={{background:'#0f172a',border:'1px solid '+(qsofaPts>=2?'#ef444440':'#22c55e40'),borderRadius:'10px',padding:'14px'}}>
+                    <div style={{fontSize:'9px',color:'#64748b',letterSpacing:'0.1em',marginBottom:'6px'}}>QSOFA</div>
+                    <div style={{fontSize:'28px',fontWeight:700,color:qsofaPts>=2?'#ef4444':'#22c55e',lineHeight:1}}>{qsofaPts}<span style={{fontSize:'12px',color:'#64748b'}}>/3</span></div>
+                    <div style={{fontSize:'11px',color:qsofaPts>=2?'#ef4444':'#22c55e',marginTop:'4px',fontWeight:600}}>{qsofaPts>=2?'SEPSE':'Baixo risco'}</div>
+                    {qsofaRisk&&<div style={{fontSize:'10px',color:'#94a3b8',marginTop:'3px'}}>{qsofaRisk}</div>}
+                  </div>
+                  <div style={{background:'#0f172a',border:'1px solid '+(parseFloat(ic)>=1?'#ef444440':'#22c55e40'),borderRadius:'10px',padding:'14px'}}>
+                    <div style={{fontSize:'9px',color:'#64748b',letterSpacing:'0.1em',marginBottom:'6px'}}>INDICE DE CHOQUE</div>
+                    <div style={{fontSize:'28px',fontWeight:700,color:parseFloat(ic)>=1?'#ef4444':'#22c55e',lineHeight:1}}>{ic||'N/D'}</div>
+                    <div style={{fontSize:'11px',color:parseFloat(ic)>=1?'#ef4444':'#22c55e',marginTop:'4px',fontWeight:600}}>{ic?(parseFloat(ic)>=1?'Alterado':'Normal'):''}</div>
+                  </div>
+                </div>
+                {(latest.red_flags||[]).length>0&&<div style={{background:'#0f172a',border:'1px solid #ef444440',borderLeft:'3px solid #ef4444',borderRadius:'10px',padding:'14px',marginBottom:'12px'}}>
+                  <div style={{fontSize:'10px',color:'#ef4444',letterSpacing:'0.12em',textTransform:'uppercase',fontWeight:700,marginBottom:'10px'}}>Red Flags Ativos</div>
+                  {(latest.red_flags||[]).map((f,i)=><div key={i} style={{display:'flex',gap:'8px',padding:'5px 0',borderBottom:'1px solid #1e293b15'}}><span style={{color:'#ef4444'}}>!</span><span style={{color:'#fca5a5',fontSize:'12px'}}>{f}</span></div>)}
+                </div>}
+                {(latest.resumo)&&<div style={{background:'#0f172a',border:'1px solid #1e293b',borderLeft:'3px solid #818cf8',borderRadius:'10px',padding:'14px'}}>
+                  <div style={{fontSize:'10px',color:'#818cf8',letterSpacing:'0.12em',textTransform:'uppercase',fontWeight:700,marginBottom:'6px'}}>Hipotese Principal</div>
+                  <div style={{fontSize:'13px',color:'#f1f5f9',fontWeight:600}}>{(latest.hipoteses||[])[0]?.nome||'Ver analise'}</div>
+                  <div style={{fontSize:'11px',color:'#475569',marginTop:'6px',lineHeight:'1.6'}}>{latest.resumo?.slice(0,200)}...</div>
+                </div>}
+              </div>);
+            })()}
+          </div>}
+
           {screen==='evolution'&&sel&&<div className="fin">
             <div style={{display:'flex',alignItems:'center',gap:'10px',marginBottom:'16px'}}>
               <button className="sbtn" onClick={()=>setScreen('patient')}>Voltar</button>
