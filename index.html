@@ -176,6 +176,9 @@ function App(){
   const [saved,setSaved]=useState('');
   const [showPDF,setShowPDF]=useState(false);
   const [dbLoad,setDbLoad]=useState(true);
+  const [isRec,setIsRec]=useState(false);
+  const [micErr,setMicErr]=useState("");
+  const recRef=React.useRef(null);
   const [editPat,setEditPat]=useState(false);
   const [editN,setEditN]=useState('');
   const [editL,setEditL]=useState('');
@@ -194,6 +197,18 @@ function App(){
       setPatients(prev=>prev.map(p=>p.id===sel.id?data:p));
       setEditPat(false);
     }
+  }
+  function toggleMic(){
+    setMicErr("");
+    if(isRec){if(recRef.current)recRef.current.stop();setIsRec(false);return;}
+    var SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+    if(!SR){setMicErr("Use o microfone do teclado iOS");return;}
+    var r=new SR();r.lang="pt-BR";r.continuous=true;r.interimResults=true;
+    r.onstart=function(){setIsRec(true);};
+    r.onend=function(){setIsRec(false);};
+    r.onerror=function(e){setIsRec(false);setMicErr("Erro: "+e.error);};
+    r.onresult=function(e){var t="";for(var i=e.resultIndex;i<e.results.length;i++){if(e.results[i].isFinal)t+=e.results[i][0].transcript+" ";}if(t)setCaseText(function(prev){return (prev+t).trim()+" ";});};
+    recRef.current=r;r.start();
   }
   async function createP(){if(!npN.trim())return;const{data,error}=await db.from('pacientes').insert({nome:npN.trim(),leito:npL.trim(),setor:npS.trim()}).select().single();if(!error){setPatients(prev=>[data,...prev]);setShowNP(false);setNpN('');setNpL('');setNpS('');setSel(data);setScreen('new');setResult(null);setCaseText('')}}
 
@@ -227,7 +242,6 @@ function App(){
           <Logo size={32}/><div><div style={{fontWeight:700,fontSize:'16px',color:'#1D9E75',letterSpacing:'5px',lineHeight:1}}>MAIS</div><div style={{fontSize:'8px',color:'#475569',letterSpacing:'0.18em',marginTop:'2px'}}>inteligencia clinica.</div></div>
         </button>
         <div style={{marginLeft:'auto',display:'flex',gap:'8px'}}>
-          {(result||selA)&&(screen==='new'||screen==='detail')&&<button className="btn" onClick={()=>setShowPDF(true)}>PDF</button>}
         </div>
       </div>
       <div style={{display:'flex',height:'calc(100vh - 52px)'}}>
@@ -299,8 +313,18 @@ function App(){
             <div className="card">
               <div style={{fontSize:'10px',color:'#38bdf8',letterSpacing:'0.12em',textTransform:'uppercase',fontWeight:700,marginBottom:'9px'}}>Caso Clinico</div>
               <textarea value={caseText} onChange={e=>setCaseText(e.target.value)} placeholder="Digite ou dite o caso pelo microfone do teclado..." className="inp" style={{minHeight:'100px',resize:'vertical',lineHeight:'1.6',padding:'9px'}}/>
-              <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginTop:'9px'}}>
-                <span style={{fontSize:'10px',color:'#334155'}}>{caseText.length} chars</span>
+              <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginTop:'9px',gap:'8px'}}>
+                <div style={{display:'flex',alignItems:'center',gap:'8px'}}>
+                  <button onClick={toggleMic} style={{background:isRec?'#ef4444':'#1e293b',border:'none',borderRadius:'50%',width:'36px',height:'36px',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
+                    {isRec
+                      ? <span style={{color:'#fff',fontSize:'10px',fontWeight:700}}>■</span>
+                      : <span style={{color:'#94a3b8',fontSize:'16px'}}>🎙</span>
+                    }
+                  </button>
+                  {isRec&&<span style={{fontSize:'10px',color:'#ef4444'}}>● Gravando...</span>}
+                  {micErr&&<span style={{fontSize:'10px',color:'#f59e0b'}}>{micErr}</span>}
+                  {!isRec&&!micErr&&<span style={{fontSize:'10px',color:'#334155'}}>{caseText.length} chars</span>}
+                </div>
                 <button className="btn2" onClick={analyze} disabled={loading||caseText.trim().length<10} style={{opacity:loading||caseText.trim().length<10?0.4:1}}>{loading?'Analisando...':'Analisar caso'}</button>
               </div>
             </div>
@@ -317,6 +341,53 @@ function App(){
             </div>
             <Result data={selA.resultado_json} onPDF={()=>setShowPDF(true)}/>
           </div>}
+          {screen==='dashboard'&&sel&&<div className="fin">
+            <div style={{display:'flex',alignItems:'center',gap:'10px',marginBottom:'14px'}}>
+              <button className="sbtn" onClick={()=>setScreen('patient')}>Voltar</button>
+              <div style={{fontSize:'13px',fontWeight:600,color:'#f1f5f9'}}>Dashboard — {sel.nome}</div>
+            </div>
+            {patA.length===0
+              ? <div style={{textAlign:'center',padding:'32px',color:'#475569',fontSize:'12px'}}>Nenhuma analise ainda.</div>
+              : (function(){
+                  var lat=patA[0].resultado_json||{};
+                  var sv=lat.paciente&&lat.paciente.sinais_vitais||{};
+                  var qpts=lat.sepse&&lat.sepse.qsofa&&lat.sepse.qsofa.pontos||0;
+                  var ic=lat.sepse&&lat.sepse.indice_choque&&lat.sepse.indice_choque.valor||'';
+                  var icn=parseFloat(ic)||0;
+                  var flags=(lat.red_flags||[]).slice(0,4);
+                  var hip=(lat.hipoteses||[])[0];
+                  var passo=(lat.passos||[])[0];
+                  var sc=qpts>=2||icn>=1||lat.urgente;
+                  var scolor=sc?'#ef4444':qpts>=1?'#f59e0b':'#22c55e';
+                  var slabel=sc?'ATENCAO IMEDIATA':qpts>=1?'MONITORAR':'ESTAVEL';
+                  var dfmt=patA[0].created_at?new Date(patA[0].created_at).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}):'';
+                  var VT=[{k:'FC',l:'FC',bad:function(v){return v>100||v<50;}},{k:'PAS',l:'PAS',bad:function(v){return v<90;}},{k:'FR',l:'FR',bad:function(v){return v>=22;}},{k:'SpO2',l:'SpO2',bad:function(v){return v<90;}},{k:'Glasgow',l:'GCS',bad:function(v){return v<13;}}];
+                  return (<div>
+                    <div style={{background:scolor+'15',border:'1px solid '+scolor+'40',borderRadius:'10px',padding:'10px 14px',marginBottom:'12px',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+                      <span style={{fontWeight:700,fontSize:'12px',color:scolor}}>{slabel}</span>
+                      <div style={{display:'flex',gap:'12px'}}>
+                        <div style={{textAlign:'center'}}><div style={{fontSize:'9px',color:'#64748b'}}>qSOFA</div><div style={{fontSize:'16px',fontWeight:700,color:qpts>=2?'#ef4444':'#22c55e'}}>{qpts}/3</div></div>
+                        {ic&&<div style={{textAlign:'center'}}><div style={{fontSize:'9px',color:'#64748b'}}>IND.CHOQUE</div><div style={{fontSize:'16px',fontWeight:700,color:icn>=1?'#ef4444':'#22c55e'}}>{ic}</div></div>}
+                        <div style={{fontSize:'10px',color:'#475569'}}>{dfmt}</div>
+                      </div>
+                    </div>
+                    <div style={{background:'#0f172a',border:'1px solid #1e293b',borderRadius:'10px',padding:'12px',marginBottom:'12px'}}>
+                      <div style={{fontSize:'9px',color:'#64748b',letterSpacing:'0.1em',marginBottom:'10px'}}>SINAIS VITAIS</div>
+                      <div style={{display:'grid',gridTemplateColumns:'repeat(5,1fr)',gap:'6px'}}>{VT.map(function(v){var val=sv[v.k];if(!val)return null;var bad=v.bad(parseFloat(val));var col=bad?'#ef4444':'#94a3b8';return(<div key={v.k} style={{background:'#020617',border:'1px solid '+(bad?'#ef444430':'#1e293b'),borderRadius:'7px',padding:'8px',textAlign:'center'}}><div style={{fontSize:'8px',color:'#475569',marginBottom:'2px'}}>{v.l}</div><div style={{fontSize:'15px',fontWeight:700,color:col}}>{val}</div></div>);})}</div>
+                    </div>
+                    {flags.length>0&&<div style={{background:'#0f172a',border:'1px solid #ef444430',borderLeft:'3px solid #ef4444',borderRadius:'10px',padding:'12px',marginBottom:'12px'}}>
+                      <div style={{fontSize:'9px',color:'#ef4444',fontWeight:700,marginBottom:'8px'}}>RED FLAGS</div>
+                      {flags.map(function(f,i){return(<div key={i} style={{fontSize:'11px',color:'#fca5a5',padding:'3px 0'}}>! {f}</div>);})}
+                    </div>}
+                    <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'10px'}}>
+                      {hip&&<div style={{background:'#0f172a',border:'1px solid #818cf830',borderLeft:'3px solid #818cf8',borderRadius:'10px',padding:'12px'}}><div style={{fontSize:'9px',color:'#818cf8',fontWeight:700,marginBottom:'6px'}}>HIPOTESE PRINCIPAL</div><div style={{fontSize:'12px',color:'#f1f5f9',fontWeight:600}}>{hip.nome}</div></div>}
+                      {passo&&<div style={{background:'#0f172a',border:'1px solid #34d39930',borderLeft:'3px solid #34d399',borderRadius:'10px',padding:'12px'}}><div style={{fontSize:'9px',color:'#34d399',fontWeight:700,marginBottom:'6px'}}>PROXIMO PASSO</div><div style={{fontSize:'11px',color:'#86efac',lineHeight:'1.5'}}>{passo}</div></div>}
+                    </div>
+                  </div>);
+                })()
+            }
+          </div>}
+
           {screen==='evolution'&&sel&&<div className="fin">
             <div style={{display:'flex',alignItems:'center',gap:'10px',marginBottom:'16px'}}>
               <button className="sbtn" onClick={()=>setScreen('patient')}>Voltar</button>
