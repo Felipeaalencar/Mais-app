@@ -177,7 +177,7 @@ function VitalChart({sv}){
   var items=Object.entries(RANGES).filter(function(e){return sv[e[0]]!==undefined;}).map(function(e){
     var key=e[0],range=e[1];
     var raw=sv[key];
-    var val=parseFloat(String(raw).split(/[^0-9.]/)[0]);
+    var val=parseFloat(String(raw).replace(/,/g,".").match(/[0-9]+\.?[0-9]*/)?.[0]||"NaN");
     if(isNaN(val))return null;
     var low=range.min,high=range.max;
     var span=high-low;
