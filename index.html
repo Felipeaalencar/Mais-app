@@ -500,6 +500,25 @@ function App(){
 }
 
 ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+            {showDesfecho&&<div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.75)',zIndex:200,display:'flex',alignItems:'center',justifyContent:'center'}} onClick={()=>setShowDesfecho(false)}>
+              <div style={{background:'#0f172a',border:'1px solid #1e293b',borderRadius:'12px',padding:'20px',width:'260px'}} onClick={e=>e.stopPropagation()}>
+                <div style={{fontSize:'11px',color:'#64748b',marginBottom:'14px',letterSpacing:'0.1em'}}>REGISTRAR DESFECHO</div>
+                {[{k:'alta',l:'Alta Medica',c:'#22c55e'},{k:'transferencia',l:'Transferencia',c:'#f59e0b'},{k:'obito',l:'Obito',c:'#94a3b8'}].map(function(item){
+                  return(<div key={item.k} onClick={async function(){
+                    var now=new Date().toISOString();
+                    await db.from('pacientes').update({desfecho:item.k,desfecho_data:now}).eq('id',sel.id);
+                    setSel(function(prev){return Object.assign({},prev,{desfecho:item.k,desfecho_data:now});});
+                    setPatients(function(prev){return prev.map(function(p){return p.id===sel.id?Object.assign({},p,{desfecho:item.k}):p;});});
+                    setShowDesfecho(false);
+                  }} style={{display:'flex',alignItems:'center',gap:'12px',padding:'12px',borderRadius:'8px',cursor:'pointer',border:'1px solid '+item.c+'30',marginBottom:'8px',background:item.c+'10'}}>
+                    <div style={{width:'10px',height:'10px',borderRadius:'50%',background:item.c,flexShrink:0}}/>
+                    <span style={{color:item.c,fontWeight:700,fontSize:'14px'}}>{item.l}</span>
+                  </div>);
+                })}
+                <button className="sbtn" style={{width:'100%',marginTop:'4px'}} onClick={()=>setShowDesfecho(false)}>Cancelar</button>
+              </div>
+            </div>}
+
 </script>
 </body>
 </html>
