@@ -21,7 +21,7 @@ export default async function handler(req, res) {
         'x-api-key': key
       },
       body: JSON.stringify({
-        model: 'claude-sonnet-4-20250514',
+        model: 'claude-opus-4-5',
         max_tokens: 4096,
         system: prompt,
         messages: [{ role: 'user', content: 'Analise e retorne apenas JSON:\n\n' + caseText }]
