@@ -234,6 +234,45 @@ var STATUS_CFG={
   grave:{label:'Grave',color:'#ef4444'},
   critico:{label:'Critico',color:'#b91c1c'},
 };
+
+function PinScreen({onUnlock}){
+  const [pin,setPin]=React.useState('');
+  const [err,setErr]=React.useState(false);
+  function press(d){
+    if(pin.length>=4)return;
+    var next=pin+d;
+    setPin(next);
+    setErr(false);
+    if(next.length===4){
+      if(next==='1404'){onUnlock();}
+      else{setTimeout(function(){setPin('');setErr(true);},400);}
+    }
+  }
+  function del(){setPin(function(p){return p.slice(0,-1);});setErr(false);}
+  return(
+    <div style={{position:'fixed',inset:0,background:'#020617',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',zIndex:9999}}>
+      <svg width="56" height="56" viewBox="0 0 90 90" style={{marginBottom:'12px'}}><rect width="90" height="90" rx="20" fill="#0f172a"/><path d="M 6,45 L 12,45 L 15,25 L 25,56 L 35,25 L 45,45 L 50,45 L 54,38 L 57,18 L 62,72 L 66,38 L 70,45 L 82,45" fill="none" stroke="#1D9E75" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/><circle cx="57" cy="18" r="3.5" fill="#EF9F27"/></svg>
+      <div style={{fontWeight:700,fontSize:'20px',color:'#1D9E75',letterSpacing:'6px',marginBottom:'4px'}}>MAIS</div>
+      <div style={{fontSize:'10px',color:'#475569',letterSpacing:'0.2em',marginBottom:'40px'}}>inteligencia clinica.</div>
+      <div style={{display:'flex',gap:'14px',marginBottom:'32px'}}>
+        {[0,1,2,3].map(function(i){return(
+          <div key={i} style={{width:'14px',height:'14px',borderRadius:'50%',background:pin.length>i?(err?'#ef4444':'#1D9E75'):'#1e293b',border:'2px solid '+(pin.length>i?(err?'#ef4444':'#1D9E75'):'#334155'),transition:'all 0.15s'}}/>
+        );})}
+      </div>
+      {err&&<div style={{fontSize:'11px',color:'#ef4444',marginBottom:'16px'}}>Senha incorreta</div>}
+      <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:'12px',width:'240px'}}>
+        {[1,2,3,4,5,6,7,8,9,'',0,'⌫'].map(function(d,i){
+          if(d==='')return <div key={i}/>;
+          return(
+            <button key={i} onClick={function(){d==='⌫'?del():press(String(d));}} style={{background:'#0f172a',border:'1px solid #1e293b',borderRadius:'12px',height:'64px',fontSize:d==='⌫'?'20px':'22px',fontWeight:600,color:'#f1f5f9',cursor:'pointer',fontFamily:'monospace'}}>
+              {d}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
 function App(){
   const [patients,setPatients]=useState([]);
   const [sel,setSel]=useState(null);
@@ -249,6 +288,7 @@ function App(){
   const [err,setErr]=useState(null);
   const [saved,setSaved]=useState('');
   const [showPDF,setShowPDF]=useState(false);
+  const [unlocked,setUnlocked]=useState(false);
   const [dbLoad,setDbLoad]=useState(true);
   const [showDesfecho,setShowDesfecho]=useState(false);
   const [showStatusEdit,setShowStatusEdit]=useState(false);
@@ -309,6 +349,7 @@ function App(){
   const patA=sel?analyses[sel.id]||[]:[];
   const filtered=patients.filter(p=>p.nome.toLowerCase().includes(search.toLowerCase())||(p.leito||'').toLowerCase().includes(search.toLowerCase()));
 
+  if(!unlocked)return <PinScreen onUnlock={function(){setUnlocked(true);}}/>;
   if(showPDF&&(result||selA?.resultado_json))return <PrintView data={result||selA.resultado_json} paciente={sel} createdAt={selA?.created_at} onClose={()=>setShowPDF(false)}/>;
 
   return(
