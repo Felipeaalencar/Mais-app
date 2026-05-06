@@ -305,7 +305,9 @@ export default function App() {
       </div>
 
       <div style={{flex:1,overflowY:'auto',display:'flex',flexDirection:'column',height:'100%'}}>
-        {!sel&&<HomeDash patients={patients} analyses={analyses} homeFilter={homeFilter} setHomeFilter={setHomeFilter} setSel={setSel} loadA={loadA} setScreen={setScreen}/>}
+        {!sel&&patients.length>0&&<HomeDash patients={patients} analyses={analyses} homeFilter={homeFilter} setHomeFilter={setHomeFilter} setSel={setSel} loadA={loadA} setScreen={setScreen}/>
+        }
+        {!sel&&patients.length===0&&<div style={{display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',height:'100%',color:'#1e293b'}}><div style={{fontSize:'11px',letterSpacing:'0.15em',marginTop:'16px'}}>SELECIONE OU CRIE UM PACIENTE</div></div>}
 
         {sel&&screen==='patient'&&<div className="fin" style={{padding:'16px'}}>
           <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:'16px',flexWrap:'wrap',gap:'10px'}}>
