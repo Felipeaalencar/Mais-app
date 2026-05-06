@@ -1,0 +1,18 @@
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body, #root { height: 100%; }
+body { background: #020617; color: #cbd5e1; font-family: 'Courier New', monospace; font-size: 13px; }
+::-webkit-scrollbar { width: 4px; }
+::-webkit-scrollbar-track { background: #0a0f1e; }
+::-webkit-scrollbar-thumb { background: #1e293b; border-radius: 2px; }
+.btn { background: linear-gradient(135deg,#1D9E75,#0d7a5a); border: none; border-radius: 7px; padding: 8px 16px; cursor: pointer; color: #fff; font-weight: 700; font-size: 12px; font-family: monospace; }
+.btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.btn2 { background: linear-gradient(135deg,#0ea5e9,#0284c7); border: none; border-radius: 7px; padding: 8px 16px; cursor: pointer; color: #fff; font-weight: 700; font-size: 12px; font-family: monospace; }
+.btn2:disabled { opacity: 0.4; cursor: not-allowed; }
+.sbtn { background: none; border: 1px solid #1e293b; border-radius: 6px; padding: 6px 12px; cursor: pointer; color: #64748b; font-size: 11px; font-family: monospace; }
+.sbtn:hover { border-color: #334155; color: #94a3b8; }
+.inp { width: 100%; background: #020617; border: 1px solid #1e293b; border-radius: 7px; padding: 8px 10px; color: #f1f5f9; font-family: monospace; font-size: 12px; resize: vertical; outline: none; }
+.inp:focus { border-color: #334155; }
+.fin { animation: fin 0.2s ease; }
+@keyframes fin { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+.np { max-width: 900px; margin: 0 auto; padding: 16px; }
+.tag { display: inline-block; background: #1e293b; border: 1px solid #334155; border-radius: 20px; padding: 2px 8px; font-size: 10px; color: #94a3b8; margin: 2px; }
