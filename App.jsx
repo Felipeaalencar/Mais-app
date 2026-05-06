@@ -29,7 +29,7 @@ function HomeDash({ patients, analyses, homeFilter, setHomeFilter, setSel, loadA
     </div>
   );
   return (
-    <div style={{padding:'16px',overflowY:'auto',height:'100%'}}>
+    <div style={{padding:'16px',overflowY:'auto',flex:1}}>
       <div style={{marginBottom:'14px'}}><div style={{fontSize:'13px',fontWeight:700,color:'#f1f5f9'}}>Visao Geral — UTI</div><div style={{fontSize:'10px',color:'#475569'}}>{ativos.length} paciente{ativos.length!==1?'s':''} ativo{ativos.length!==1?'s':''}</div></div>
       <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:'8px',marginBottom:'14px'}}>
         {metrics.map(m=>{const active=homeFilter===m.f;return(<div key={m.label} onClick={()=>setHomeFilter(active?null:m.f)} style={{background:active?'#1e293b':'#0f172a',border:`1px solid ${active?m.color+'50':'#1e293b'}`,borderRadius:'8px',padding:'12px',cursor:'pointer'}}><div style={{fontSize:'24px',fontWeight:700,color:m.color,lineHeight:1}}>{m.val}</div><div style={{fontSize:'9px',color:'#475569',marginTop:'4px',letterSpacing:'0.08em'}}>{m.label}</div></div>);})}
@@ -305,7 +305,7 @@ export default function App() {
         </div>
       </div>
 
-      <div style={{flex:1,overflowY:'auto',display:'flex',flexDirection:'column'}}>
+      <div style={{flex:1,overflowY:'auto',display:'flex',flexDirection:'column',height:'100%'}}>
         {!sel&&<HomeDash patients={patients} analyses={analyses} homeFilter={homeFilter} setHomeFilter={setHomeFilter} setSel={setSel} loadA={loadA} setScreen={setScreen}/>}
 
         {sel&&screen==='patient'&&<div className="fin" style={{padding:'16px'}}>
