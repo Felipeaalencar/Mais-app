@@ -46,7 +46,6 @@ function HomeDash({ patients, analyses, homeFilter, setHomeFilter, setSel, loadA
         {filtrados.map(p=>{const pa=(analyses[p.id]||[])[0];const hip=pa?.resultado_json?.hipoteses?.[0];return(<div key={p.id} onClick={()=>{setSel(p);loadA(p.id);setScreen('patient');setHomeFilter(null);}} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'8px 0',borderBottom:'1px solid #1e293b',cursor:'pointer'}}><div><span style={{fontSize:'12px',fontWeight:700,color:'#f1f5f9'}}>{p.nome}</span><span style={{fontSize:'10px',color:'#64748b',marginLeft:'8px'}}>{[p.leito,p.setor].filter(Boolean).join(' - ')||'Sem setor'}</span>{hip&&<div style={{fontSize:'10px',color:'#475569',marginTop:'1px'}}>{hip.nome}</div>}</div><span style={{fontSize:'9px',fontWeight:700,padding:'2px 7px',borderRadius:'4px',color:STATUS_CFG[p.status_clinico||'estavel']?.color,background:STATUS_CFG[p.status_clinico||'estavel']?.bg}}>{STATUS_CFG[p.status_clinico||'estavel']?.label}</span></div>);})}
         {!filtrados.length&&<div style={{fontSize:'11px',color:'#334155',textAlign:'center',padding:'12px'}}>Nenhum paciente nesta categoria</div>}
       </div>
-      <ConsultorClinico/>
     </div>
   );
 }
@@ -487,6 +486,7 @@ export default function App() {
           })}
         </div>}
       </div>
+      <ConsultorClinico/>
     </div>
   );
 }
