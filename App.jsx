@@ -23,7 +23,7 @@ function HomeDash({ patients, analyses, homeFilter, setHomeFilter, setSel, loadA
     { label: 'ATENCAO',  val: atencao.length,   color: '#f59e0b', f: 'atencao' },
     { label: 'ESTAVEIS', val: estaveis.length,  color: '#22c55e', f: 'estavel' },
   ];
-  if (!ativos.length) return (
+  if (!patients.length) return (
     <div style={{display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',height:'100%',color:'#1e293b'}}>
       <Logo size={80}/><div style={{fontSize:'11px',letterSpacing:'0.15em',marginTop:'16px',color:'#1e293b'}}>SELECIONE OU CRIE UM PACIENTE</div>
     </div>
@@ -46,9 +46,91 @@ function HomeDash({ patients, analyses, homeFilter, setHomeFilter, setSel, loadA
         {filtrados.map(p=>{const pa=(analyses[p.id]||[])[0];const hip=pa?.resultado_json?.hipoteses?.[0];return(<div key={p.id} onClick={()=>{setSel(p);loadA(p.id);setScreen('patient');setHomeFilter(null);}} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'8px 0',borderBottom:'1px solid #1e293b',cursor:'pointer'}}><div><span style={{fontSize:'12px',fontWeight:700,color:'#f1f5f9'}}>{p.nome}</span><span style={{fontSize:'10px',color:'#64748b',marginLeft:'8px'}}>{[p.leito,p.setor].filter(Boolean).join(' - ')||'Sem setor'}</span>{hip&&<div style={{fontSize:'10px',color:'#475569',marginTop:'1px'}}>{hip.nome}</div>}</div><span style={{fontSize:'9px',fontWeight:700,padding:'2px 7px',borderRadius:'4px',color:STATUS_CFG[p.status_clinico||'estavel']?.color,background:STATUS_CFG[p.status_clinico||'estavel']?.bg}}>{STATUS_CFG[p.status_clinico||'estavel']?.label}</span></div>);})}
         {!filtrados.length&&<div style={{fontSize:'11px',color:'#334155',textAlign:'center',padding:'12px'}}>Nenhum paciente nesta categoria</div>}
       </div>
+      <ConsultorClinico/>
     </div>
   );
 }
+
+function ConsultorClinico() {
+  const [open, setOpen] = useState(false);
+  const [msgs, setMsgs] = useState([]);
+  const [input, setInput] = useState('');
+  const [loading, setLoading] = useState(false);
+  const endRef = useRef(null);
+
+  useEffect(() => { endRef.current?.scrollIntoView({behavior:'smooth'}); }, [msgs]);
+
+  const SUGESTOES = [
+    'Dose maxima de noradrenalina?',
+    'Criterios de Berlin para SDRA',
+    'Quando intubar Glasgow 12?',
+    'Protocolo sepse 1 hora',
+  ];
+
+  async function send(text) {
+    const q = text || input.trim();
+    if (!q) return;
+    setInput('');
+    setMsgs(prev => [...prev, {role:'user', text:q}]);
+    setLoading(true);
+    try {
+      const res = await fetch('/api/analyze', {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({
+          caseText: q,
+          prompt: 'Voce e um consultor medico especialista em medicina intensiva e UTI. Responda duvidas clinicas de forma direta, precisa e baseada em evidencias internacionais (Surviving Sepsis, SCCM, UpToDate). Seja conciso mas completo. Mencione doses, criterios e referencias quando relevante. Responda em portugues.'
+        })
+      });
+      const data = await res.json();
+      const raw = (data.content || []).map(b => b.type === 'text' ? b.text : '').join('');
+      setMsgs(prev => [...prev, {role:'ai', text: raw || 'Nao consegui responder. Tente novamente.'}]);
+    } catch(e) {
+      setMsgs(prev => [...prev, {role:'ai', text:'Erro ao consultar. Verifique a conexao.'}]);
+    }
+    setLoading(false);
+  }
+
+  return (
+    <>
+      <button onClick={() => setOpen(!open)} style={{position:'fixed',bottom:'20px',right:'20px',width:'52px',height:'52px',borderRadius:'50%',background:'linear-gradient(135deg,#1D9E75,#0d7a5a)',border:'none',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',fontSize:'22px',zIndex:1000,boxShadow:'0 4px 12px #1D9E7540'}}>
+        {open ? 'X' : '?'}
+      </button>
+      {open && <div style={{position:'fixed',bottom:'84px',right:'20px',width:'340px',height:'480px',background:'#0a0f1e',border:'1px solid #1e293b',borderRadius:'14px',display:'flex',flexDirection:'column',zIndex:1000,overflow:'hidden'}}>
+        <div style={{padding:'12px 16px',borderBottom:'1px solid #1e293b',display:'flex',alignItems:'center',gap:'8px'}}>
+          <div style={{width:'8px',height:'8px',borderRadius:'50%',background:'#1D9E75'}}/>
+          <span style={{fontSize:'12px',fontWeight:700,color:'#1D9E75',letterSpacing:'0.1em'}}>CONSULTOR CLINICO</span>
+          <span style={{fontSize:'10px',color:'#334155',marginLeft:'auto'}}>literatura mundial</span>
+        </div>
+        <div style={{flex:1,overflowY:'auto',padding:'12px',display:'flex',flexDirection:'column',gap:'8px'}}>
+          {msgs.length === 0 && (
+            <div>
+              <div style={{fontSize:'11px',color:'#475569',marginBottom:'10px',textAlign:'center'}}>Duvidas clinicas rapidas</div>
+              {SUGESTOES.map((s,i) => (
+                <div key={i} onClick={() => send(s)} style={{fontSize:'11px',color:'#64748b',background:'#0f172a',border:'1px solid #1e293b',borderRadius:'20px',padding:'6px 12px',marginBottom:'6px',cursor:'pointer',textAlign:'center'}}>{s}</div>
+              ))}
+            </div>
+          )}
+          {msgs.map((m,i) => (
+            <div key={i} style={{display:'flex',justifyContent:m.role==='user'?'flex-end':'flex-start'}}>
+              <div style={{maxWidth:'85%',padding:'9px 12px',borderRadius:m.role==='user'?'10px 10px 2px 10px':'10px 10px 10px 2px',background:m.role==='user'?'#1e3a5f':'#0f172a',border:'1px solid '+(m.role==='user'?'#1e4a7f':'#1e293b')}}>
+                {m.role==='ai' && <div style={{fontSize:'8px',color:'#1D9E75',marginBottom:'4px',letterSpacing:'0.1em'}}>MAIS</div>}
+                <p style={{fontSize:'12px',color:m.role==='user'?'#93c5fd':'#94a3b8',lineHeight:1.6,margin:0}}>{m.text}</p>
+              </div>
+            </div>
+          ))}
+          {loading && <div style={{display:'flex',justifyContent:'flex-start'}}><div style={{padding:'9px 12px',borderRadius:'10px 10px 10px 2px',background:'#0f172a',border:'1px solid #1e293b'}}><span style={{fontSize:'12px',color:'#475569'}}>Consultando...</span></div></div>}
+          <div ref={endRef}/>
+        </div>
+        <div style={{padding:'10px',borderTop:'1px solid #1e293b',display:'flex',gap:'8px'}}>
+          <input value={input} onChange={e=>setInput(e.target.value)} onKeyDown={e=>e.key==='Enter'&&send()} placeholder="Digite sua duvida clinica..." className="inp" style={{flex:1,fontSize:'12px'}}/>
+          <button onClick={()=>send()} disabled={!input.trim()||loading} className="btn" style={{padding:'8px 12px',opacity:!input.trim()||loading?0.4:1}}>OK</button>
+        </div>
+      </div>}
+    </>
+  );
+}
+
 
 export default function App() {
   const [unlocked,setUnlocked]=useState(false);
