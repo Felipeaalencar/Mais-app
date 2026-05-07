@@ -283,6 +283,7 @@ export default function App() {
       <div style={{ flex: 1, overflowY: 'auto' }}>
 
         {/* HOME DASHBOARD */}
+        {screen === 'home' && (<div style={{background:'red',color:'white',padding:'10px',position:'fixed',top:0,left:'220px',zIndex:9999}}>DASHBOARD HOME ATIVO - patients:{patients.length}</div>)}
         {screen === 'home' && (
           <div style={{ padding: '20px' }}>
             {patients.length === 0 ? (
