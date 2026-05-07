@@ -210,6 +210,7 @@ export default function App() {
   }
 
   const ativos = patients.filter(p => !p.desfecho);
+  const todosAtivos = patients; // includes desfecho for home display
   const criticos = ativos.filter(p => p.status_clinico === 'critico');
   const atencao = ativos.filter(p => p.status_clinico === 'atencao' || p.status_clinico === 'grave');
   const estaveis = ativos.filter(p => p.status_clinico === 'estavel' || !p.status_clinico);
@@ -284,7 +285,7 @@ export default function App() {
         {/* HOME DASHBOARD */}
         {screen === 'home' && (
           <div style={{ padding: '20px' }}>
-            {ativos.length === 0 ? (
+            {patients.length === 0 ? (
               <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '60vh', color: '#1e293b' }}>
                 <Logo size={80} />
                 <div style={{ fontSize: '11px', letterSpacing: '0.15em', marginTop: '16px', color: '#334155' }}>CRIE UM PACIENTE PARA INICIAR</div>
