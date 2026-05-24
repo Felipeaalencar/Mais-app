@@ -259,6 +259,57 @@ function minutesSince(d){
 
 var MESES_PT=['Janeiro','Fevereiro','Marco','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
 
+var CONSULT_CHIPS=[
+  {label:'Medicacao',icon:'💊',template:'Dose de '},
+  {label:'Exames',icon:'🧪',template:'Como interpretar '},
+  {label:'Sepse',icon:'🚨',template:'Conduta para sepse com '},
+  {label:'Vasoativas',icon:'💉',template:'Titulacao de '},
+  {label:'Ventilacao',icon:'🫁',template:'Parametros ventilatorios para '},
+  {label:'Dose/peso',icon:'⚖️',template:'Dose por peso de '}
+];
+
+var CONSULT_SYSTEM=`Voce e um assistente de apoio a decisao clinica para medicos intensivistas brasileiros. Responda de forma direta, baseada em evidencia, em portugues do Brasil. Use formatacao markdown leve (negrito **texto**, listas com -). Seja conciso (max 250 palavras por resposta, salvo pergunta complexa). REGRAS IMPORTANTES: 1) Voce e APOIO, nao prescreve - sempre lembre que a decisao e do medico; 2) Para doses, sempre cite o intervalo recomendado e fatores que ajustam (peso, funcao renal); 3) NAO de diagnostico fechado, sugira hipoteses; 4) Se faltam dados, peca o que precisa; 5) Conhecimento ate o corte do treinamento - alerte se a pergunta puder envolver protocolos muito recentes; 6) Em duvida sobre seguranca, recomende consultar fonte oficial (Micromedex, UpToDate, bula).`;
+
+// Renderizador leve de markdown para mensagens do consultor
+function renderMD(text){
+  if(!text)return null;
+  var lines=text.split('\n');
+  var out=[];
+  var listBuf=[];
+  function renderInline(s){
+    var parts=[];var rest=s;var idx=0;
+    while(rest.length>0){
+      var m=rest.match(/\*\*([^*]+)\*\*/);
+      if(!m){parts.push(<span key={idx++}>{rest}</span>);break;}
+      if(m.index>0)parts.push(<span key={idx++}>{rest.substring(0,m.index)}</span>);
+      parts.push(<strong key={idx++} style={{color:'#34d399',fontWeight:700}}>{m[1]}</strong>);
+      rest=rest.substring(m.index+m[0].length);
+    }
+    return parts;
+  }
+  function flushList(){
+    if(listBuf.length>0){
+      var items=listBuf.slice();
+      out.push(<ul key={'ul'+out.length} style={{margin:'4px 0 8px',paddingLeft:'18px'}}>{items.map(function(item,i){return <li key={i} style={{marginBottom:'3px',lineHeight:1.6}}>{renderInline(item)}</li>;})}</ul>);
+      listBuf=[];
+    }
+  }
+  for(var i=0;i<lines.length;i++){
+    var ln=lines[i];
+    if(/^\s*[-*]\s+/.test(ln)){listBuf.push(ln.replace(/^\s*[-*]\s+/,''));continue;}
+    flushList();
+    if(/^#{1,3}\s+/.test(ln)){
+      out.push(<div key={'h'+i} style={{fontWeight:700,color:'#34d399',marginTop:i>0?'10px':0,marginBottom:'4px',fontSize:'12px'}}>{ln.replace(/^#{1,3}\s+/,'')}</div>);
+    }else if(ln.trim()===''){
+      if(out.length>0)out.push(<div key={'br'+i} style={{height:'6px'}}/>);
+    }else{
+      out.push(<div key={'p'+i} style={{lineHeight:1.6,marginBottom:'4px'}}>{renderInline(ln)}</div>);
+    }
+  }
+  flushList();
+  return out;
+}
+
 function PinScreen({onUnlock}){
   var [pin,setPin]=React.useState('');
   var [err,setErr]=React.useState(false);
@@ -318,6 +369,14 @@ function App(){
   const [viewMode,setViewMode]=useState('agora');
   const [histMonth,setHistMonth]=useState(null);
   const [alertHours,setAlertHours]=useState(function(){try{return parseInt(localStorage.getItem('mais_alert_hours'))||12;}catch(e){return 12;}});
+  // Consultor clinico
+  const [consultOpen,setConsultOpen]=useState(false);
+  const [consultMsgs,setConsultMsgs]=useState(function(){try{return JSON.parse(localStorage.getItem('mais_consult_msgs')||'[]');}catch(e){return [];}});
+  const [consultInput,setConsultInput]=useState('');
+  const [consultLoading,setConsultLoading]=useState(false);
+  const [consultIncludePat,setConsultIncludePat]=useState(false);
+  const consultEndRef=React.useRef(null);
+  const consultInputRef=React.useRef(null);
   const [showStatusEdit,setShowStatusEdit]=useState(false);
   const [isRec,setIsRec]=useState(false);
   const [micErr,setMicErr]=useState("");
@@ -329,6 +388,73 @@ function App(){
 
   useEffect(()=>{loadP()},[]);
   useEffect(()=>{if(sel)loadA(sel.id)},[sel]);
+  useEffect(function(){
+    try{localStorage.setItem('mais_consult_msgs',JSON.stringify(consultMsgs));}catch(e){}
+    if(consultEndRef.current)consultEndRef.current.scrollIntoView({behavior:'smooth',block:'end'});
+  },[consultMsgs]);
+  useEffect(function(){
+    if(consultOpen&&consultInputRef.current)setTimeout(function(){consultInputRef.current&&consultInputRef.current.focus();},80);
+  },[consultOpen]);
+
+  async function sendConsult(){
+    var txt=consultInput.trim();
+    if(!txt||consultLoading)return;
+    var userMsg={role:'user',content:txt,t:Date.now()};
+    var newMsgs=consultMsgs.concat([userMsg]);
+    setConsultMsgs(newMsgs);
+    setConsultInput('');
+    setConsultLoading(true);
+    // Monta system prompt + contexto do paciente se solicitado
+    var system=CONSULT_SYSTEM;
+    if(consultIncludePat&&sel){
+      var ctxParts=['Contexto do paciente atual:','Nome: '+sel.nome];
+      if(sel.leito)ctxParts.push('Leito: '+sel.leito);
+      if(sel.setor)ctxParts.push('Setor: '+sel.setor);
+      if(sel.status_clinico)ctxParts.push('Status: '+sel.status_clinico);
+      var lastA=(analyses[sel.id]||[])[0];
+      if(lastA&&lastA.resultado_json){
+        var rj=lastA.resultado_json;
+        if(rj.resumo)ctxParts.push('Resumo da ultima analise: '+rj.resumo);
+        if(rj.hipoteses&&rj.hipoteses[0])ctxParts.push('Hipotese principal: '+rj.hipoteses[0].nome);
+        var sv=rj.paciente&&rj.paciente.sinais_vitais;
+        if(sv&&Object.keys(sv).length>0){
+          ctxParts.push('Sinais vitais: '+Object.entries(sv).map(function(kv){return kv[0]+'='+kv[1];}).join(', '));
+        }
+      }
+      system=system+'\n\n'+ctxParts.join('\n');
+    }
+    // Pega ultimas 8 mensagens (4 trocas) + a nova
+    var historyForApi=newMsgs.slice(-8).map(function(m){return{role:m.role,content:m.content};});
+    try{
+      var res=await fetch('/api/analyze',{
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({mode:'consult',messages:historyForApi,system:system})
+      });
+      if(!res.ok){var t=await res.text();throw new Error('API '+res.status+': '+t.slice(0,150));}
+      var data=await res.json();
+      if(data.error)throw new Error(data.error);
+      var raw=(data.content||[]).map(function(b){return b.type==='text'?b.text:'';}).join('')||'';
+      if(!raw.trim())throw new Error('Resposta vazia.');
+      setConsultMsgs(function(prev){return prev.concat([{role:'assistant',content:raw,t:Date.now()}]);});
+    }catch(e){
+      setConsultMsgs(function(prev){return prev.concat([{role:'assistant',content:'**Erro:** '+e.message+'\n\nTente novamente em alguns segundos.',t:Date.now(),isError:true}]);});
+    }finally{
+      setConsultLoading(false);
+    }
+  }
+  function clearConsult(){
+    if(!confirm('Limpar toda a conversa do consultor?'))return;
+    setConsultMsgs([]);
+    try{localStorage.removeItem('mais_consult_msgs');}catch(e){}
+  }
+  function applyChip(template){
+    setConsultInput(template);
+    if(consultInputRef.current){
+      consultInputRef.current.focus();
+      setTimeout(function(){if(consultInputRef.current)consultInputRef.current.setSelectionRange(template.length,template.length);},10);
+    }
+  }
 
   async function loadP(){
     setDbLoad(true);
@@ -977,6 +1103,83 @@ function App(){
           </div>}
         </div>
       </div>
+      {/* ============== CONSULTOR CLINICO FLUTUANTE ============== */}
+      {!consultOpen&&<button onClick={function(){setConsultOpen(true);}} title="Consultor clinico" style={{position:'fixed',bottom:'20px',right:'20px',width:'52px',height:'52px',borderRadius:'50%',background:'linear-gradient(135deg,#1D9E75,#0d9488)',border:'none',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',boxShadow:'0 4px 12px rgba(29,158,117,0.4)',zIndex:200}}>
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+      </button>}
+      {consultOpen&&<div style={{position:'fixed',inset:0,background:'rgba(2,6,23,0.7)',zIndex:300,display:'flex',alignItems:'flex-end',justifyContent:'center',padding:'20px'}} onClick={function(e){if(e.target===e.currentTarget)setConsultOpen(false);}}>
+        <div style={{width:'100%',maxWidth:'540px',maxHeight:'85vh',background:'#0a0f1e',border:'1px solid rgba(29,158,117,0.25)',borderRadius:'12px',overflow:'hidden',display:'flex',flexDirection:'column'}}>
+          {/* header */}
+          <div style={{background:'#0f172a',padding:'12px 16px',borderBottom:'1px solid #1e293b',display:'flex',justifyContent:'space-between',alignItems:'center',flexShrink:0}}>
+            <div style={{display:'flex',alignItems:'center',gap:'10px'}}>
+              <div style={{width:'28px',height:'28px',borderRadius:'7px',background:'rgba(29,158,117,0.15)',display:'flex',alignItems:'center',justifyContent:'center'}}>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#1D9E75" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+              </div>
+              <div>
+                <div style={{fontSize:'12px',fontWeight:700,color:'#1D9E75',letterSpacing:'0.1em'}}>CONSULTOR CLINICO</div>
+                <div style={{fontSize:'9px',color:'#64748b',marginTop:'1px'}}>Apoio a decisao - nao prescreve</div>
+              </div>
+            </div>
+            <div style={{display:'flex',gap:'6px'}}>
+              {consultMsgs.length>0&&<button onClick={clearConsult} style={{background:'transparent',border:'1px solid #1e293b',color:'#64748b',fontSize:'9px',padding:'3px 8px',borderRadius:'4px',cursor:'pointer',fontFamily:'monospace'}}>Limpar</button>}
+              <button onClick={function(){setConsultOpen(false);}} style={{background:'transparent',border:'none',color:'#64748b',fontSize:'20px',cursor:'pointer',padding:'0 4px',lineHeight:1}}>×</button>
+            </div>
+          </div>
+          {/* chips */}
+          <div style={{padding:'10px 16px',borderBottom:'1px solid #1e293b',flexShrink:0}}>
+            <div style={{fontSize:'9px',color:'#475569',letterSpacing:'0.1em',marginBottom:'7px'}}>ATALHOS</div>
+            <div style={{display:'flex',flexWrap:'wrap',gap:'5px'}}>
+              {CONSULT_CHIPS.map(function(c){return(<button key={c.label} onClick={function(){applyChip(c.template);}} style={{background:'rgba(29,158,117,0.1)',border:'1px solid rgba(29,158,117,0.3)',color:'#34d399',padding:'4px 9px',borderRadius:'5px',fontSize:'10px',fontFamily:'monospace',cursor:'pointer'}}>{c.icon} {c.label}</button>);})}
+            </div>
+          </div>
+          {/* checkbox de contexto */}
+          {sel&&<div onClick={function(){setConsultIncludePat(!consultIncludePat);}} style={{padding:'9px 16px',borderBottom:'1px solid #1e293b',display:'flex',alignItems:'center',gap:'8px',cursor:'pointer',flexShrink:0}}>
+            <div style={{width:'13px',height:'13px',borderRadius:'3px',border:'1.5px solid '+(consultIncludePat?'#1D9E75':'#334155'),background:consultIncludePat?'#1D9E75':'transparent',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>{consultIncludePat&&<span style={{color:'#fff',fontSize:'9px',fontWeight:700}}>v</span>}</div>
+            <span style={{fontSize:'10px',color:'#94a3b8'}}>Incluir contexto do paciente <span style={{color:'#f1f5f9',fontWeight:600}}>{sel.nome}</span></span>
+          </div>}
+          {/* area de mensagens */}
+          <div style={{flex:1,overflowY:'auto',padding:'14px 16px',minHeight:'200px'}}>
+            {consultMsgs.length===0&&!consultLoading&&<div style={{textAlign:'center',color:'#334155',fontSize:'11px',lineHeight:1.8,padding:'30px 0'}}>
+              Faca uma pergunta clinica.<br/>Doses, condutas, interpretacao de exames.
+            </div>}
+            {consultMsgs.map(function(m,i){
+              var time=new Date(m.t).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'});
+              if(m.role==='user'){
+                return(<div key={i} style={{display:'flex',justifyContent:'flex-end',marginBottom:'12px'}}>
+                  <div style={{maxWidth:'78%',background:'rgba(29,158,117,0.12)',border:'1px solid rgba(29,158,117,0.3)',borderRadius:'10px 10px 2px 10px',padding:'8px 12px'}}>
+                    <div style={{fontSize:'12px',color:'#f1f5f9',lineHeight:1.5,whiteSpace:'pre-wrap'}}>{m.content}</div>
+                    <div style={{fontSize:'8px',color:'#64748b',marginTop:'4px',textAlign:'right'}}>{time}</div>
+                  </div>
+                </div>);
+              }
+              return(<div key={i} style={{display:'flex',gap:'8px',marginBottom:'12px'}}>
+                <div style={{width:'24px',height:'24px',borderRadius:'6px',background:'rgba(29,158,117,0.15)',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0,marginTop:'2px'}}>
+                  <svg width="12" height="12" viewBox="0 0 90 90"><path d="M 6,45 L 12,45 L 15,25 L 25,56 L 35,25 L 45,45 L 50,45 L 54,38 L 57,18 L 62,72 L 66,38 L 70,45 L 82,45" fill="none" stroke={m.isError?'#ef4444':'#1D9E75'} strokeWidth="5" strokeLinecap="round"/></svg>
+                </div>
+                <div style={{maxWidth:'88%',background:m.isError?'#1c0a0a':'#0f172a',border:'1px solid '+(m.isError?'#ef444440':'#1e293b'),borderRadius:'2px 10px 10px 10px',padding:'10px 12px'}}>
+                  <div style={{fontSize:'12px',color:m.isError?'#fca5a5':'#cbd5e1'}}>{renderMD(m.content)}</div>
+                  <div style={{fontSize:'8px',color:'#64748b',marginTop:'6px'}}>{time}</div>
+                </div>
+              </div>);
+            })}
+            {consultLoading&&<div style={{display:'flex',gap:'8px',marginBottom:'12px',alignItems:'center'}}>
+              <div style={{width:'24px',height:'24px',borderRadius:'6px',background:'rgba(29,158,117,0.15)',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
+                <div style={{width:'12px',height:'12px',border:'2px solid #1e293b',borderTop:'2px solid #1D9E75',borderRadius:'50%',animation:'spin 1s linear infinite'}}/>
+              </div>
+              <span style={{fontSize:'11px',color:'#475569'}}>Pensando...</span>
+            </div>}
+            <div ref={consultEndRef}/>
+          </div>
+          {/* input */}
+          <div style={{padding:'10px 12px',borderTop:'1px solid #1e293b',background:'#020617',flexShrink:0}}>
+            <div style={{display:'flex',gap:'8px',alignItems:'flex-end'}}>
+              <textarea ref={consultInputRef} value={consultInput} onChange={function(e){setConsultInput(e.target.value);}} onKeyDown={function(e){if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();sendConsult();}}} placeholder="Sua pergunta..." style={{flex:1,background:'#0f172a',border:'1px solid #1e293b',borderRadius:'6px',padding:'8px 10px',color:'#cbd5e1',fontFamily:'monospace',fontSize:'12px',resize:'none',minHeight:'36px',maxHeight:'120px'}} rows="1"/>
+              <button onClick={sendConsult} disabled={!consultInput.trim()||consultLoading} style={{background:!consultInput.trim()||consultLoading?'#1e293b':'linear-gradient(135deg,#1D9E75,#0d9488)',border:'none',borderRadius:'6px',color:'#fff',padding:'8px 16px',fontWeight:700,fontSize:'11px',cursor:!consultInput.trim()||consultLoading?'not-allowed':'pointer',fontFamily:'monospace',opacity:!consultInput.trim()||consultLoading?0.5:1}}>{consultLoading?'...':'Enviar'}</button>
+            </div>
+            <div style={{textAlign:'center',fontSize:'8px',color:'#334155',marginTop:'8px',letterSpacing:'0.05em'}}>NAO SUBSTITUI JULGAMENTO CLINICO - NAO E PRESCRICAO</div>
+          </div>
+        </div>
+      </div>}
     </div>
   );
 }
