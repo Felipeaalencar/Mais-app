@@ -36,7 +36,7 @@ const SUPA_URL = 'https://xyyhxxaxmyicvgijcqau.supabase.co';
 const SUPA_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inh5eWh4eGF4bXlpY3ZnaWpjcWF1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc2Njk5MjksImV4cCI6MjA5MzI0NTkyOX0.yfmTot10KpQTZtztv2y1Jf0DHLgxwIxs3xMe1OgPE9s';
 const db = supabase.createClient(SUPA_URL, SUPA_KEY);
 
-const PROMPT = `Voce e um assistente medico de suporte a decisao clinica hospitalar. Responda SOMENTE com JSON valido, sem markdown. Em sinais_vitais use APENAS numeros simples ex: "FC":"122", "PAS":"82", "FR":"32", "SpO2":"86", "Glasgow":"11" - NUNCA texto descritivo. Estrutura: {"resumo":"","paciente":{"idade":"","sexo":"","setor":"","queixa":"","evolucao":"","comorbidades":[],"sinais_vitais":{},"exames":[],"intervencoes":[],"sintomas":[]},"hipoteses":[{"nome":"","prob":"Alta/Media/Baixa","favor":[],"contra":[],"risco":""}],"red_flags":[],"lacunas":[],"passos":[],"scores":[{"nome":"","valor":"","interpretacao":"","faltam":[]}],"sepse":{"qsofa":{"pontos":0,"criterios":[],"risco":""},"indice_choque":{"valor":"","interpretacao":""}},"resumo_familiar":"","metas_uti":[],"tendencias":"","urgente":true,"sbar":{"situacao":"","background":"","avaliacao":"","recomendacao":""},"checklist":[]} Regras: Max 4 hipoteses. Max 6 itens por array. NAO prescreva. NAO feche diagnosticos.`;
+const PROMPT = `Voce e um assistente medico de suporte a decisao clinica hospitalar. Responda SOMENTE com JSON valido, sem markdown. Em sinais_vitais use APENAS numeros simples ex: "FC":"122", "PAS":"82", "FR":"32", "SpO2":"86", "Glasgow":"11" - NUNCA texto descritivo. Estrutura: {"resumo":"","paciente":{"idade":"","sexo":"","setor":"","queixa":"","evolucao":"","comorbidades":[],"sinais_vitais":{},"exames":[],"intervencoes":[],"sintomas":[]},"hipoteses":[{"nome":"","prob":"Alta/Media/Baixa","favor":[],"contra":[],"risco":""}],"red_flags":[],"lacunas":[],"passos":[],"scores":[{"nome":"","valor":"","interpretacao":"","faltam":[]}],"sepse":{"qsofa":{"pontos":0,"criterios":[],"risco":""},"indice_choque":{"valor":"","interpretacao":""}},"resumo_familiar":"","metas_uti":[],"tendencias":"","urgente":true,"sbar":{"situacao":"","background":"","avaliacao":"","recomendacao":""},"checklist":[],"exames_extraidos":[{"categoria":"","valores":[{"nome":"","valor":"","unidade":"","status":"normal/baixo/alto/limitrofe"}]}],"exames_achados":""} Regras: Max 4 hipoteses. Max 6 itens por array. NAO prescreva. NAO feche diagnosticos. SE houver anexos (imagens ou PDFs de exames): 1) Extraia valores numericos para "exames_extraidos" agrupados por categoria (Hemograma, Funcao renal, Eletrolitos, Gasometria, Funcao hepatica, Coagulograma, Marcadores inflamatorios, Outros). 2) Para cada valor, marque status: "alto" se acima do normal, "baixo" se abaixo, "limitrofe" se proximo do limite, "normal" se dentro da faixa. 3) Sintetize achados clinicos em "exames_achados" (1-2 linhas). 4) Use os valores extraidos para enriquecer hipoteses, red_flags e passos. 5) PRIVACIDADE: IGNORE COMPLETAMENTE e NUNCA mencione nomes de pacientes, prontuarios, CPF, RG, datas de nascimento, telefones, enderecos, numeros de identificacao, nomes de medicos ou hospitais que aparecam nos exames. Extraia APENAS valores clinicos. SE NAO houver anexos, deixe "exames_extraidos":[] e "exames_achados":"".`;
 
 const rc = p => p==='Alta'?'#ef4444':p==='Media'?'#f59e0b':'#22c55e';
 const fmt = d => new Date(d).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'});
@@ -95,7 +95,8 @@ function CheckTab({data}){
 
 function Result({data,onPDF}){
   const [tab,setTab]=useState('resumo');
-  const tabs=[{id:'resumo',l:'Resumo',i:'📋'},{id:'hip',l:'Diferenciais',i:'🔬'},{id:'sepse',l:'Sepse',i:'🚨'},{id:'flags',l:'Red Flags',i:'⚑'},{id:'passos',l:'Passos',i:'🗺'},{id:'scores',l:'Scores',i:'📊'},{id:'plantao',l:'Plantao',i:'📝'},{id:'familia',l:'Familia',i:'👪'},{id:'metas',l:'Metas',i:'🎯'},{id:'check',l:'Checklist',i:'✅'}];
+  const hasExames=data.exames_extraidos&&Array.isArray(data.exames_extraidos)&&data.exames_extraidos.length>0;
+  const tabs=[{id:'resumo',l:'Resumo',i:'📋'},{id:'hip',l:'Diferenciais',i:'🔬'},...(hasExames?[{id:'exames',l:'Exames',i:'🧪'}]:[]),{id:'sepse',l:'Sepse',i:'🚨'},{id:'flags',l:'Red Flags',i:'⚑'},{id:'passos',l:'Passos',i:'🗺'},{id:'scores',l:'Scores',i:'📊'},{id:'plantao',l:'Plantao',i:'📝'},{id:'familia',l:'Familia',i:'👪'},{id:'metas',l:'Metas',i:'🎯'},{id:'check',l:'Checklist',i:'✅'}];
   const sv=data.paciente?.sinais_vitais||{};
   const qsofa=data.sepse?.qsofa||{};
   const ic=data.sepse?.indice_choque||{};
@@ -107,6 +108,29 @@ function Result({data,onPDF}){
       <div style={{display:'flex',flexWrap:'wrap',gap:'3px',marginBottom:'12px',background:'#0f172a',border:'1px solid #1e293b',borderRadius:'7px',padding:'5px'}}>{tabs.map(t=><button key={t.id} onClick={()=>setTab(t.id)} className={'tab'+(tab===t.id?' on':'')}>{t.i} {t.l}</button>)}</div>
       {tab==='resumo'&&<div><Sec title="Resumo" icon="📋" accent="#38bdf8"><p style={{lineHeight:'1.7',color:'#94a3b8',fontSize:'12px'}}>{data.resumo}</p></Sec><div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'10px'}}><Sec title="Paciente" icon="👤" accent="#818cf8"><div style={{fontSize:'11px',lineHeight:1.8}}>{data.paciente?.idade&&<div><span style={{color:'#64748b'}}>Idade: </span>{data.paciente.idade}</div>}{data.paciente?.setor&&<div><span style={{color:'#64748b'}}>Setor: </span>{data.paciente.setor}</div>}{data.paciente?.comorbidades?.length>0&&<div style={{marginTop:'6px'}}><div style={{fontSize:'9px',color:'#64748b',marginBottom:'3px'}}>COMORBIDADES</div>{data.paciente.comorbidades.map(c=><Tag key={c} color="#a78bfa">{c}</Tag>)}</div>}</div></Sec><Sec title="Queixa" icon="🩺" accent="#f472b6"><p style={{color:'#f9a8d4',fontWeight:600,marginBottom:'7px',lineHeight:'1.4',fontSize:'12px'}}>{data.paciente?.queixa}</p>{data.paciente?.sintomas?.map(s=><Tag key={s} color="#22d3ee">{s}</Tag>)}</Sec></div>{data.tendencias&&<Sec title="Tendencias" icon="📈" accent="#34d399"><p style={{color:'#94a3b8',lineHeight:'1.6',fontSize:'12px'}}>{data.tendencias}</p></Sec>}</div>}
       {tab==='hip'&&<div>{(data.hipoteses||[]).map((h,i)=>(<div key={i} style={{background:'#0f172a',border:'1px solid #1e293b',borderLeft:'4px solid '+rc(h.prob),borderRadius:'7px',padding:'12px 14px',marginBottom:'8px'}}><div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'8px'}}><span style={{fontWeight:700,fontSize:'13px',color:'#f1f5f9'}}>#{i+1} {h.nome}</span><span style={{padding:'1px 9px',borderRadius:'999px',background:rc(h.prob)+'20',color:rc(h.prob),border:'1px solid '+rc(h.prob)+'50',fontSize:'10px',fontWeight:700}}>{h.prob}</span></div><div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'8px',marginBottom:'7px'}}><div><div style={{fontSize:'9px',color:'#22c55e',marginBottom:'3px'}}>A FAVOR</div>{(h.favor||[]).map((a,j)=><div key={j} style={{fontSize:'11px',color:'#86efac',padding:'1px 0'}}>- {a}</div>)}</div><div><div style={{fontSize:'9px',color:'#f59e0b',marginBottom:'3px'}}>CONTRA</div>{(h.contra||[]).map((c,j)=><div key={j} style={{fontSize:'11px',color:'#fcd34d',padding:'1px 0'}}>- {c}</div>)}</div></div>{h.risco&&<div style={{background:'#1c0a0a',borderRadius:'4px',padding:'6px 9px',fontSize:'11px',color:'#fca5a5'}}><span style={{color:'#ef4444',fontWeight:700}}>RISCO: </span>{h.risco}</div>}</div>))}</div>}
+      {tab==='exames'&&hasExames&&<div><Sec title="Exames Extraidos" icon="🧪" accent="#38bdf8">
+        {(data.exames_extraidos||[]).map(function(cat,i){
+          return(<div key={i} style={{marginBottom:'12px'}}>
+            <div style={{fontSize:'9px',color:'#64748b',letterSpacing:'0.1em',marginBottom:'6px',textTransform:'uppercase'}}>{cat.categoria}</div>
+            <div style={{display:'flex',flexWrap:'wrap',gap:'5px'}}>
+              {(cat.valores||[]).map(function(v,j){
+                var st=(v.status||'normal').toLowerCase();
+                var col=st==='alto'||st==='baixo'?'#ef4444':st==='limitrofe'?'#f59e0b':'#94a3b8';
+                var bd=st==='alto'||st==='baixo'?'rgba(239,68,68,0.2)':st==='limitrofe'?'rgba(245,158,11,0.2)':'#1e293b';
+                return(<div key={j} style={{background:'#020617',border:'0.5px solid '+bd,borderRadius:'5px',padding:'4px 8px',textAlign:'center',minWidth:'62px'}}>
+                  <div style={{fontSize:'8px',color:'#64748b'}}>{v.nome}</div>
+                  <div style={{fontSize:'12px',fontWeight:700,color:col}}>{v.valor}</div>
+                  {v.unidade&&<div style={{fontSize:'7px',color:'#475569',marginTop:'1px'}}>{v.unidade}</div>}
+                </div>);
+              })}
+            </div>
+          </div>);
+        })}
+        {data.exames_achados&&<div style={{marginTop:'10px',paddingTop:'10px',borderTop:'1px solid #1e293b'}}>
+          <div style={{fontSize:'9px',color:'#ef4444',fontWeight:700,letterSpacing:'0.1em',marginBottom:'6px'}}>ACHADOS CLINICOS</div>
+          <p style={{fontSize:'12px',color:'#fca5a5',lineHeight:1.6}}>{data.exames_achados}</p>
+        </div>}
+      </Sec></div>}
       {tab==='sepse'&&<div><Sec title="qSOFA" icon="🧬" accent={qsofa.pontos>=2?'#ef4444':'#22c55e'}><div style={{display:'flex',alignItems:'center',gap:'16px'}}><div style={{textAlign:'center',minWidth:'60px'}}><div style={{fontSize:'28px',fontWeight:700,color:qsofa.pontos>=2?'#ef4444':'#22c55e',lineHeight:1}}>{qsofa.pontos??'N/D'}</div><div style={{fontSize:'9px',color:'#64748b'}}>pontos</div></div><div style={{flex:1,borderLeft:'1px solid #1e293b',paddingLeft:'12px'}}><div style={{fontSize:'12px',color:'#94a3b8',marginBottom:'6px'}}>{qsofa.risco}</div>{(qsofa.criterios||[]).map((c,i)=><div key={i} style={{fontSize:'11px',color:'#fca5a5',padding:'2px 0'}}>- {c}</div>)}</div></div></Sec>{ic.valor&&<Sec title="Indice de Choque" icon="💓" accent={parseFloat(ic.valor)>=1?'#ef4444':'#22c55e'}><div style={{display:'flex',alignItems:'center',gap:'16px'}}><div style={{fontSize:'28px',fontWeight:700,color:parseFloat(ic.valor)>=1?'#ef4444':'#22c55e'}}>{ic.valor}</div><div style={{color:'#94a3b8',fontSize:'12px',paddingLeft:'12px',borderLeft:'1px solid #1e293b'}}>{ic.interpretacao}</div></div></Sec>}</div>}
       {tab==='flags'&&<div><Sec title="Red Flags" icon="⚑" accent="#ef4444">{(data.red_flags||[]).map((f,i)=><div key={i} style={{display:'flex',gap:'8px',padding:'7px 0',borderBottom:'1px solid #1e293b'}}><span style={{color:'#ef4444'}}>!</span><span style={{color:'#fca5a5',fontSize:'12px'}}>{f}</span></div>)}</Sec><div style={{padding:'8px',background:'#0f172a',borderRadius:'5px',fontSize:'10px',color:'#334155',lineHeight:'1.7',marginTop:'8px'}}>NAO SUBSTITUI JULGAMENTO CLINICO. NAO FECHA DIAGNOSTICOS. NAO PRESCREVE TRATAMENTOS.</div></div>}
       {tab==='passos'&&<div><Sec title="Proximos Passos" icon="🗺" accent="#34d399">{(data.passos||[]).map((p,i)=>(<div key={i} style={{display:'flex',gap:'8px',padding:'7px 0',borderBottom:'1px solid #1e293b',alignItems:'flex-start'}}><span style={{background:'#022c22',color:'#34d399',borderRadius:'3px',width:'18px',height:'18px',display:'flex',alignItems:'center',justifyContent:'center',fontSize:'9px',fontWeight:700,flexShrink:0}}>{i+1}</span><span style={{color:'#86efac',fontSize:'12px'}}>{p}</span></div>))}</Sec></div>}
@@ -310,6 +334,59 @@ function renderMD(text){
   return out;
 }
 
+// ============ HELPERS DE ANEXOS ============
+const MAX_ATTACHMENTS = 5;
+const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
+const COMPRESS_MAX_DIM = 1280;
+const COMPRESS_QUALITY = 0.82;
+
+function compressImage(file) {
+  return new Promise(function(resolve, reject){
+    var reader = new FileReader();
+    reader.onload = function(e){
+      var img = new Image();
+      img.onload = function(){
+        var w = img.width, h = img.height;
+        if (w > COMPRESS_MAX_DIM || h > COMPRESS_MAX_DIM) {
+          if (w > h) { h = Math.round(h * COMPRESS_MAX_DIM / w); w = COMPRESS_MAX_DIM; }
+          else { w = Math.round(w * COMPRESS_MAX_DIM / h); h = COMPRESS_MAX_DIM; }
+        }
+        var canvas = document.createElement('canvas');
+        canvas.width = w; canvas.height = h;
+        var ctx = canvas.getContext('2d');
+        ctx.fillStyle = '#fff';
+        ctx.fillRect(0, 0, w, h);
+        ctx.drawImage(img, 0, 0, w, h);
+        var dataUrl = canvas.toDataURL('image/jpeg', COMPRESS_QUALITY);
+        var base64 = dataUrl.split(',')[1];
+        resolve({ base64: base64, media_type: 'image/jpeg', size: Math.round(base64.length * 0.75) });
+      };
+      img.onerror = function(){ reject(new Error('Erro ao processar imagem')); };
+      img.src = e.target.result;
+    };
+    reader.onerror = function(){ reject(new Error('Erro ao ler arquivo')); };
+    reader.readAsDataURL(file);
+  });
+}
+
+function readPdfAsBase64(file) {
+  return new Promise(function(resolve, reject){
+    var reader = new FileReader();
+    reader.onload = function(e){
+      var base64 = e.target.result.split(',')[1];
+      resolve({ base64: base64, media_type: 'application/pdf', size: file.size });
+    };
+    reader.onerror = function(){ reject(new Error('Erro ao ler PDF')); };
+    reader.readAsDataURL(file);
+  });
+}
+
+function fmtBytes(n) {
+  if (n < 1024) return n + ' B';
+  if (n < 1024 * 1024) return Math.round(n / 1024) + ' KB';
+  return (n / (1024 * 1024)).toFixed(1) + ' MB';
+}
+
 function PinScreen({onUnlock}){
   var [pin,setPin]=React.useState('');
   var [err,setErr]=React.useState(false);
@@ -357,6 +434,9 @@ function App(){
   const [showNP,setShowNP]=useState(false);
   const [npN,setNpN]=useState('');const [npL,setNpL]=useState('');const [npS,setNpS]=useState('');
   const [caseText,setCaseText]=useState('');
+  const [attachments,setAttachments]=useState([]);
+  const [attachErr,setAttachErr]=useState('');
+  const fileInputRef=React.useRef(null);
   const [loading,setLoading]=useState(false);
   const [result,setResult]=useState(null);
   const [err,setErr]=useState(null);
@@ -388,6 +468,12 @@ function App(){
 
   useEffect(()=>{loadP()},[]);
   useEffect(()=>{if(sel)loadA(sel.id)},[sel]);
+  useEffect(function(){
+    if(screen!=='new'&&attachments.length>0){
+      setAttachments([]);
+      setAttachErr('');
+    }
+  },[screen]);
   useEffect(function(){
     try{localStorage.setItem('mais_consult_msgs',JSON.stringify(consultMsgs));}catch(e){}
     if(consultEndRef.current)consultEndRef.current.scrollIntoView({behavior:'smooth',block:'end'});
@@ -499,11 +585,60 @@ function App(){
   }
   async function createP(){if(!npN.trim())return;const{data,error}=await db.from('pacientes').insert({nome:npN.trim(),leito:npL.trim(),setor:npS.trim()}).select().single();if(!error){setPatients(prev=>[data,...prev]);setShowNP(false);setNpN('');setNpL('');setNpS('');setSel(data);setScreen('new');setResult(null);setCaseText('')}}
 
+  async function handleFiles(filesList){
+    setAttachErr('');
+    var files = Array.from(filesList);
+    if (attachments.length + files.length > MAX_ATTACHMENTS) {
+      setAttachErr('Maximo '+MAX_ATTACHMENTS+' anexos. Voce ja tem '+attachments.length+'.');
+      return;
+    }
+    var newAttachments = [];
+    for (var i = 0; i < files.length; i++) {
+      var file = files[i];
+      if (file.size > MAX_FILE_SIZE) {
+        setAttachErr('Arquivo "'+file.name+'" excede 5MB ('+fmtBytes(file.size)+').');
+        continue;
+      }
+      var isImage = file.type.startsWith('image/');
+      var isPdf = file.type === 'application/pdf';
+      if (!isImage && !isPdf) {
+        setAttachErr('Tipo nao suportado: '+file.name+'. Apenas imagens e PDF.');
+        continue;
+      }
+      try {
+        var processed = isImage ? await compressImage(file) : await readPdfAsBase64(file);
+        newAttachments.push({
+          name: file.name,
+          type: isImage ? 'image' : 'pdf',
+          media_type: processed.media_type,
+          base64: processed.base64,
+          size: processed.size
+        });
+      } catch (e) {
+        setAttachErr('Erro ao processar "'+file.name+'": '+e.message);
+      }
+    }
+    if (newAttachments.length > 0) {
+      setAttachments(function(prev){ return prev.concat(newAttachments); });
+    }
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  }
+  function removeAttachment(idx){
+    setAttachments(function(prev){ return prev.filter(function(_, i){ return i !== idx; }); });
+    setAttachErr('');
+  }
+
   async function analyze(){
-    if(!caseText.trim())return;
+    if(!caseText.trim()&&attachments.length===0)return;
     setLoading(true);setErr(null);setResult(null);setSaved('');
     try{
-      const res=await fetch('/api/analyze',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({caseText,prompt:PROMPT})});
+      var payload = { caseText: caseText, prompt: PROMPT };
+      if (attachments.length > 0) {
+        payload.attachments = attachments.map(function(a){
+          return { type: a.type, media_type: a.media_type, base64: a.base64 };
+        });
+      }
+      const res=await fetch('/api/analyze',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
       if(!res.ok){const t=await res.text();throw new Error('API '+res.status+': '+t.slice(0,200))}
       const data=await res.json();
       if(data.error)throw new Error(data.error);
@@ -513,6 +648,8 @@ function App(){
       if(!parsed)throw new Error('Erro ao interpretar resposta.');
       setResult(parsed);
       if(sel){const{data:aData,error}=await db.from('analises').insert({paciente_id:sel.id,caso_texto:caseText,resultado_json:parsed}).select().single();if(!error){setSaved('Salvo - '+fmt(aData.created_at));loadA(sel.id)}}
+      // Limpa anexos apos sucesso
+      setAttachments([]);
     }catch(e){setErr(e.message)}
     finally{setLoading(false)}
   }
@@ -999,8 +1136,41 @@ function App(){
               <div><div style={{fontSize:'13px',fontWeight:600,color:'#f1f5f9'}}>Nova analise</div><div style={{fontSize:'10px',color:'#64748b'}}>{sel.nome}</div></div>
             </div>
             <div className="card">
-              <div style={{fontSize:'10px',color:'#38bdf8',letterSpacing:'0.12em',textTransform:'uppercase',fontWeight:700,marginBottom:'9px'}}>Caso Clinico</div>
+              <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'9px',flexWrap:'wrap',gap:'8px'}}>
+                <div style={{fontSize:'10px',color:'#38bdf8',letterSpacing:'0.12em',textTransform:'uppercase',fontWeight:700}}>Caso Clinico</div>
+                <button onClick={function(){if(fileInputRef.current)fileInputRef.current.click();}} disabled={attachments.length>=MAX_ATTACHMENTS} style={{background:attachments.length>=MAX_ATTACHMENTS?'#1e293b':'rgba(29,158,117,0.1)',border:'1px solid '+(attachments.length>=MAX_ATTACHMENTS?'#1e293b':'rgba(29,158,117,0.3)'),color:attachments.length>=MAX_ATTACHMENTS?'#475569':'#34d399',padding:'5px 10px',borderRadius:'5px',fontSize:'10px',cursor:attachments.length>=MAX_ATTACHMENTS?'not-allowed':'pointer',fontFamily:'monospace',display:'flex',alignItems:'center',gap:'5px'}}>
+                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 19V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2z"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+                  {attachments.length===0?'Anexar exame':'+ Anexar ('+attachments.length+'/'+MAX_ATTACHMENTS+')'}
+                </button>
+                <input ref={fileInputRef} type="file" accept="image/*,application/pdf" multiple onChange={function(e){handleFiles(e.target.files);}} style={{display:'none'}}/>
+              </div>
               <textarea value={caseText} onChange={e=>setCaseText(e.target.value)} placeholder="Digite ou dite o caso pelo microfone do teclado..." className="inp" style={{minHeight:'100px',resize:'vertical',lineHeight:'1.6',padding:'9px'}}/>
+              {attachments.length>0&&<div style={{marginTop:'10px'}}>
+                <div style={{fontSize:'9px',color:'#475569',letterSpacing:'0.1em',marginBottom:'6px'}}>ANEXOS ({attachments.length})</div>
+                <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(180px,1fr))',gap:'6px'}}>
+                  {attachments.map(function(a,idx){
+                    var isImage=a.type==='image';
+                    return(<div key={idx} style={{background:'#0f172a',border:'1px solid #1e293b',borderRadius:'7px',padding:'6px',display:'flex',gap:'8px',alignItems:'center'}}>
+                      <div style={{width:'34px',height:'34px',background:isImage?'#020617':'rgba(239,68,68,0.08)',borderRadius:'5px',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0,border:'0.5px solid '+(isImage?'#1e293b':'rgba(239,68,68,0.2)')}}>
+                        {isImage
+                          ?<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#34d399" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 19V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2z"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+                          :<span style={{fontSize:'9px',fontWeight:700,color:'#ef4444'}}>PDF</span>
+                        }
+                      </div>
+                      <div style={{flex:1,minWidth:0}}>
+                        <div style={{fontSize:'10px',color:'#f1f5f9',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{a.name}</div>
+                        <div style={{fontSize:'8px',color:'#475569'}}>{fmtBytes(a.size)}</div>
+                      </div>
+                      <button onClick={function(){removeAttachment(idx);}} style={{background:'transparent',border:'none',color:'#64748b',fontSize:'14px',cursor:'pointer',padding:'0 4px',lineHeight:1}}>×</button>
+                    </div>);
+                  })}
+                </div>
+                <div style={{fontSize:'9px',color:'#475569',marginTop:'6px',display:'flex',alignItems:'center',gap:'5px'}}>
+                  <span style={{fontSize:'10px'}}>i</span>
+                  Dados de identificacao serao ignorados pela IA
+                </div>
+              </div>}
+              {attachErr&&<div style={{marginTop:'8px',background:'#451a0a',border:'1px solid rgba(245,158,11,0.4)',borderRadius:'5px',padding:'6px 10px',fontSize:'10px',color:'#fbbf24'}}>{attachErr}</div>}
               <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginTop:'9px',gap:'8px'}}>
                 <div style={{display:'flex',alignItems:'center',gap:'8px'}}>
                   <button onClick={toggleMic} style={{background:isRec?'#ef4444':'#1e293b',border:'none',borderRadius:'50%',width:'36px',height:'36px',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
@@ -1011,9 +1181,9 @@ function App(){
                   </button>
                   {isRec&&<span style={{fontSize:'10px',color:'#ef4444'}}>● Gravando...</span>}
                   {micErr&&<span style={{fontSize:'10px',color:'#f59e0b'}}>{micErr}</span>}
-                  {!isRec&&!micErr&&<span style={{fontSize:'10px',color:'#334155'}}>{caseText.length} chars</span>}
+                  {!isRec&&!micErr&&<span style={{fontSize:'10px',color:'#334155'}}>{caseText.length} chars{attachments.length>0?' + '+attachments.length+' anexo'+(attachments.length>1?'s':''):''}</span>}
                 </div>
-                <button className="btn2" onClick={analyze} disabled={loading||caseText.trim().length<10} style={{opacity:loading||caseText.trim().length<10?0.4:1}}>{loading?'Analisando...':'Analisar caso'}</button>
+                <button className="btn2" onClick={analyze} disabled={loading||(caseText.trim().length<10&&attachments.length===0)} style={{opacity:loading||(caseText.trim().length<10&&attachments.length===0)?0.4:1}}>{loading?'Analisando...':(attachments.length>0?'Analisar com exames':'Analisar caso')}</button>
               </div>
             </div>
             {err&&<div style={{background:'#450a0a',border:'1px solid #ef444460',borderRadius:'6px',padding:'10px 14px',marginBottom:'10px',fontSize:'11px',color:'#fda4af',wordBreak:'break-all'}}>ERRO: {err}</div>}
