@@ -145,7 +145,6 @@ function PrintView({data,paciente,createdAt,onClose}){
       <div className="np" style={{display:'flex',gap:'8px',marginBottom:'16px',justifyContent:'flex-end'}}>
         <button onClick={onClose} style={{background:'#f1f5f9',border:'1px solid #e2e8f0',borderRadius:'6px',padding:'7px 14px',cursor:'pointer'}}>Voltar</button>
         <button onClick={()=>{const r=buildReport(data,paciente,createdAt);window.open('https://wa.me/?text='+encodeURIComponent(r),'_blank');}} style={{background:'#25d366',border:'none',borderRadius:'6px',padding:'7px 14px',cursor:'pointer',color:'#fff',fontWeight:700}}>WhatsApp</button>
-        <button onClick={function(){var r=buildReport(data,paciente,createdAt);window.open('https://wa.me/?text='+encodeURIComponent(r),'_blank');}} style={{background:'#25d366',border:'none',borderRadius:'6px',padding:'7px 14px',cursor:'pointer',color:'#fff',fontWeight:700}}>WhatsApp</button>
         <button onClick={()=>window.print()} style={{background:'#0ea5e9',border:'none',borderRadius:'6px',padding:'7px 18px',cursor:'pointer',color:'#fff',fontWeight:700}}>Salvar PDF</button>
       </div>
       <div style={{background:'#0f172a',borderRadius:'8px',padding:'14px 18px',marginBottom:'14px',display:'flex',alignItems:'center',gap:'14px'}}>
@@ -230,11 +229,35 @@ function VitalChart({sv}){
 }
 
 var STATUS_CFG={
-  estavel:{label:'Estavel',color:'#22c55e'},
-  atencao:{label:'Atencao',color:'#f59e0b'},
-  grave:{label:'Grave',color:'#ef4444'},
-  critico:{label:'Critico',color:'#b91c1c'},
+  estavel:{label:'Estavel',color:'#22c55e',bg:'#22c55e20'},
+  atencao:{label:'Atencao',color:'#f59e0b',bg:'#f59e0b20'},
+  grave:{label:'Grave',color:'#ef4444',bg:'#ef444420'},
+  critico:{label:'Critico',color:'#b91c1c',bg:'#b91c1c25'},
 };
+
+var DESFECHO_CFG={
+  alta:{label:'Alta',color:'#22c55e',bg:'rgba(34,197,94,0.18)'},
+  transferencia:{label:'Transf.',color:'#0ea5e9',bg:'rgba(14,165,233,0.18)'},
+  obito:{label:'Obito',color:'#ef4444',bg:'rgba(239,68,68,0.18)'},
+};
+
+function timeAgo(d){
+  if(!d)return '';
+  var diff=Math.floor((Date.now()-new Date(d).getTime())/60000);
+  if(diff<1)return 'agora';
+  if(diff<60)return 'ha '+diff+'min';
+  var h=Math.floor(diff/60);
+  if(h<24)return 'ha '+h+'h'+(diff%60>0?(diff%60<10?'0':'')+(diff%60):'');
+  var dy=Math.floor(h/24);
+  return 'ha '+dy+'d '+(h%24)+'h';
+}
+
+function minutesSince(d){
+  if(!d)return Infinity;
+  return Math.floor((Date.now()-new Date(d).getTime())/60000);
+}
+
+var MESES_PT=['Janeiro','Fevereiro','Marco','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
 
 function PinScreen({onUnlock}){
   var [pin,setPin]=React.useState('');
@@ -291,6 +314,10 @@ function App(){
   const [unlocked,setUnlocked]=useState(false);
   const [dbLoad,setDbLoad]=useState(true);
   const [showDesfecho,setShowDesfecho]=useState(false);
+  const [homeFilter,setHomeFilter]=useState(null);
+  const [viewMode,setViewMode]=useState('agora');
+  const [histMonth,setHistMonth]=useState(null);
+  const [alertHours,setAlertHours]=useState(function(){try{return parseInt(localStorage.getItem('mais_alert_hours'))||12;}catch(e){return 12;}});
   const [showStatusEdit,setShowStatusEdit]=useState(false);
   const [isRec,setIsRec]=useState(false);
   const [micErr,setMicErr]=useState("");
@@ -303,7 +330,25 @@ function App(){
   useEffect(()=>{loadP()},[]);
   useEffect(()=>{if(sel)loadA(sel.id)},[sel]);
 
-  async function loadP(){setDbLoad(true);const{data}=await db.from('pacientes').select('*').order('created_at',{ascending:false});setPatients(data||[]);setDbLoad(false)}
+  async function loadP(){
+    setDbLoad(true);
+    const{data}=await db.from('pacientes').select('*').order('created_at',{ascending:false});
+    const list=data||[];
+    setPatients(list);
+    setDbLoad(false);
+    if(list.length>0){
+      const ids=list.map(function(p){return p.id;});
+      const{data:aData}=await db.from('analises').select('*').in('paciente_id',ids).order('created_at',{ascending:false});
+      if(aData){
+        const grouped={};
+        aData.forEach(function(a){
+          if(!grouped[a.paciente_id])grouped[a.paciente_id]=[];
+          grouped[a.paciente_id].push(a);
+        });
+        setAnalyses(grouped);
+      }
+    }
+  }
   async function loadA(pid){const{data}=await db.from('analises').select('*').eq('paciente_id',pid).order('created_at',{ascending:false});setAnalyses(prev=>({...prev,[pid]:data||[]}))}
   async function saveEditPat(){
     if(!editN.trim())return;
@@ -391,7 +436,286 @@ function App(){
           </div>
         </div>
         <div style={{flex:1,overflowY:'auto',padding:'16px'}}>
-          {screen==='home'&&<div style={{display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',height:'70%',gap:'14px',textAlign:'center'}}><Logo size={48}/><div style={{fontSize:'11px',color:'#1e293b',letterSpacing:'0.1em',lineHeight:2}}>SELECIONE OU CRIE UM PACIENTE<br/>PARA INICIAR A ANALISE</div></div>}
+          {screen==='home'&&(function(){
+            var ativos=patients.filter(function(p){return !p.desfecho;});
+            if(patients.length===0){
+              return(<div style={{display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',height:'70%',gap:'14px',textAlign:'center'}}><Logo size={48}/><div style={{fontSize:'11px',color:'#1e293b',letterSpacing:'0.1em',lineHeight:2}}>SELECIONE OU CRIE UM PACIENTE<br/>PARA INICIAR A ANALISE</div></div>);
+            }
+            // ====================== MODO AGORA ======================
+            if(viewMode==='agora'){
+              if(ativos.length===0){
+                return(<div>
+                  <div style={{display:'flex',background:'#0f172a',border:'1px solid #1e293b',borderRadius:'6px',padding:'2px',marginBottom:'14px',width:'fit-content'}}>
+                    <button onClick={function(){setViewMode('agora');}} style={{background:'#1D9E75',border:'none',color:'#fff',padding:'5px 14px',fontSize:'10px',letterSpacing:'0.1em',fontFamily:'monospace',cursor:'pointer',borderRadius:'4px',fontWeight:700}}>AGORA</button>
+                    <button onClick={function(){setViewMode('historico');}} style={{background:'transparent',border:'none',color:'#64748b',padding:'5px 14px',fontSize:'10px',letterSpacing:'0.1em',fontFamily:'monospace',cursor:'pointer',borderRadius:'4px'}}>HISTORICO</button>
+                  </div>
+                  <div style={{display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',padding:'60px 0',gap:'14px',textAlign:'center'}}><Logo size={48}/><div style={{fontSize:'11px',color:'#1e293b',letterSpacing:'0.1em',lineHeight:2}}>NENHUM PACIENTE ATIVO<br/>VEJA O HIST\u00d3RICO OU CRIE UM PACIENTE</div></div>
+                </div>);
+              }
+              var criticos=ativos.filter(function(p){return p.status_clinico==='critico'||p.status_clinico==='grave';});
+              var atencao=ativos.filter(function(p){return p.status_clinico==='atencao';});
+              var estaveis=ativos.filter(function(p){return p.status_clinico==='estavel'||!p.status_clinico;});
+              var maisGrave=ativos.filter(function(p){return p.status_clinico==='critico';})[0]
+                ||ativos.filter(function(p){return p.status_clinico==='grave';})[0]
+                ||atencao[0]||null;
+              var analMaisGrave=maisGrave?(analyses[maisGrave.id]||[])[0]:null;
+              var rjMG=analMaisGrave&&analMaisGrave.resultado_json||{};
+              var hipMaisGrave=rjMG.hipoteses&&rjMG.hipoteses[0];
+              var qMaisGrave=rjMG.sepse&&rjMG.sepse.qsofa?rjMG.sepse.qsofa.pontos:null;
+              var icMaisGrave=rjMG.sepse&&rjMG.sepse.indice_choque&&rjMG.sepse.indice_choque.valor;
+              var svMG=rjMG.paciente&&rjMG.paciente.sinais_vitais||{};
+              var alertMin=alertHours*60;
+              var atrasados=ativos.map(function(p){
+                var a=(analyses[p.id]||[])[0];
+                var mins=a?minutesSince(a.created_at):Infinity;
+                return{p:p,mins:mins,hasAnalise:!!a};
+              }).filter(function(x){return x.mins>=alertMin;}).sort(function(a,b){return b.mins-a.mins;});
+              var filterMap={critico:criticos,atencao:atencao,estavel:estaveis};
+              var listToShow=homeFilter?filterMap[homeFilter]:null;
+              var filterLabel={critico:'CRITICOS / GRAVES',atencao:'ATENCAO',estavel:'ESTAVEIS'};
+              var VT=[{k:'FC',l:'FC',bad:function(v){return v>100||v<50;}},{k:'PAS',l:'PAS',bad:function(v){return v<90;}},{k:'FR',l:'FR',bad:function(v){return v>=22;}},{k:'SpO2',l:'SpO2',bad:function(v){return v<90;}},{k:'Glasgow',l:'GCS',bad:function(v){return v<13;}}];
+              return(<div>
+                <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'14px',gap:'10px',flexWrap:'wrap'}}>
+                  <div style={{display:'flex',background:'#0f172a',border:'1px solid #1e293b',borderRadius:'6px',padding:'2px'}}>
+                    <button onClick={function(){setViewMode('agora');setHomeFilter(null);}} style={{background:'#1D9E75',border:'none',color:'#fff',padding:'5px 14px',fontSize:'10px',letterSpacing:'0.1em',fontFamily:'monospace',cursor:'pointer',borderRadius:'4px',fontWeight:700}}>AGORA</button>
+                    <button onClick={function(){setViewMode('historico');setHomeFilter(null);}} style={{background:'transparent',border:'none',color:'#64748b',padding:'5px 14px',fontSize:'10px',letterSpacing:'0.1em',fontFamily:'monospace',cursor:'pointer',borderRadius:'4px'}}>HISTORICO</button>
+                  </div>
+                  <div style={{display:'flex',alignItems:'center',gap:'6px'}}>
+                    <span style={{fontSize:'9px',color:'#64748b',letterSpacing:'0.1em'}}>ALERTA APOS</span>
+                    <select value={alertHours} onChange={function(e){var v=parseInt(e.target.value);setAlertHours(v);try{localStorage.setItem('mais_alert_hours',v);}catch(_){}}} style={{background:'#0f172a',border:'1px solid #1e293b',color:'#94a3b8',fontSize:'10px',fontFamily:'monospace',padding:'3px 6px',borderRadius:'4px',cursor:'pointer'}}>
+                      <option value={6}>6h</option>
+                      <option value={12}>12h</option>
+                      <option value={24}>24h</option>
+                    </select>
+                  </div>
+                </div>
+                <div style={{marginBottom:'12px'}}>
+                  <div style={{fontSize:'14px',fontWeight:700,color:'#f1f5f9'}}>Visao geral — UTI</div>
+                  <div style={{fontSize:'10px',color:'#475569',marginTop:'2px'}}>{ativos.length} paciente{ativos.length!==1?'s':''} ativo{ativos.length!==1?'s':''}</div>
+                </div>
+                {atrasados.length>0&&<div style={{background:'rgba(245,158,11,0.08)',border:'1px solid rgba(245,158,11,0.4)',borderLeft:'3px solid #f59e0b',borderRadius:'8px',padding:'10px 14px',marginBottom:'12px',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+                  <div style={{display:'flex',alignItems:'center',gap:'10px',flex:1,minWidth:0}}>
+                    <span style={{fontSize:'14px'}}>!</span>
+                    <div style={{flex:1,minWidth:0}}>
+                      <div style={{fontSize:'11px',fontWeight:700,color:'#fbbf24'}}>{atrasados.length} paciente{atrasados.length!==1?'s':''} sem reavaliacao ha mais de {alertHours}h</div>
+                      <div style={{fontSize:'9px',color:'#94a3b8',marginTop:'2px',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{atrasados.slice(0,3).map(function(x){return x.p.nome+' ('+(x.hasAnalise?timeAgo(analyses[x.p.id][0].created_at):'sem analise')+')';}).join(' - ')}{atrasados.length>3?' - ...':''}</div>
+                    </div>
+                  </div>
+                </div>}
+                <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:'8px',marginBottom:'12px'}}>
+                  {[
+                    {label:'TOTAL',val:ativos.length,color:'#f1f5f9',f:null},
+                    {label:'CRITICOS',val:criticos.length,color:'#ef4444',f:'critico'},
+                    {label:'ATENCAO',val:atencao.length,color:'#f59e0b',f:'atencao'},
+                    {label:'ESTAVEIS',val:estaveis.length,color:'#22c55e',f:'estavel'}
+                  ].map(function(m){
+                    var active=homeFilter===m.f&&m.f!==null;
+                    return(<div key={m.label} onClick={function(){if(m.f===null){setHomeFilter(null);return;}setHomeFilter(homeFilter===m.f?null:m.f);}} style={{background:active?'#1e293b':'#0f172a',border:'1px solid '+(active?m.color+'80':'#1e293b'),borderRadius:'8px',padding:'12px',cursor:'pointer',transition:'all 0.15s'}}>
+                      <div style={{fontSize:'26px',fontWeight:700,color:m.color,lineHeight:1}}>{m.val}</div>
+                      <div style={{fontSize:'9px',color:'#475569',marginTop:'6px',letterSpacing:'0.1em'}}>{m.label}</div>
+                    </div>);
+                  })}
+                </div>
+                {homeFilter&&listToShow&&<div style={{marginBottom:'12px'}}>
+                  <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'8px'}}>
+                    <div style={{fontSize:'9px',color:'#64748b',letterSpacing:'0.1em'}}>{filterLabel[homeFilter]} ({listToShow.length})</div>
+                    <button className="sbtn" onClick={function(){setHomeFilter(null);}} style={{fontSize:'10px'}}>Limpar filtro</button>
+                  </div>
+                  {listToShow.length===0
+                    ?<div style={{padding:'14px',color:'#475569',fontSize:'11px',textAlign:'center',background:'#0f172a',border:'1px solid #1e293b',borderRadius:'8px'}}>Nenhum paciente nesta categoria.</div>
+                    :listToShow.map(function(p){
+                      var pa=(analyses[p.id]||[])[0];
+                      var hip=pa&&pa.resultado_json&&pa.resultado_json.hipoteses&&pa.resultado_json.hipoteses[0];
+                      var mins=pa?minutesSince(pa.created_at):Infinity;
+                      var atrasado=mins>=alertMin;
+                      return(<div key={p.id} onClick={function(){setSel(p);setScreen('patient');setResult(null);setCaseText('');setSelA(null);setHomeFilter(null);}} style={{background:'#0f172a',border:'1px solid #1e293b',borderRadius:'8px',padding:'10px 14px',marginBottom:'6px',cursor:'pointer',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+                        <div style={{flex:1,minWidth:0}}>
+                          <div style={{display:'flex',alignItems:'center',gap:'8px',flexWrap:'wrap'}}>
+                            <span style={{fontSize:'12px',fontWeight:700,color:'#f1f5f9'}}>{p.nome}</span>
+                            <span style={{fontSize:'10px',color:'#64748b'}}>{[p.leito,p.setor].filter(Boolean).join(' - ')||'Sem setor'}</span>
+                            {pa&&<span style={{fontSize:'9px',color:atrasado?'#f59e0b':'#22c55e',background:atrasado?'rgba(245,158,11,0.1)':'rgba(34,197,94,0.1)',border:'1px solid '+(atrasado?'rgba(245,158,11,0.3)':'rgba(34,197,94,0.25)'),borderRadius:'3px',padding:'1px 6px'}}>{timeAgo(pa.created_at)}</span>}
+                            {!pa&&<span style={{fontSize:'9px',color:'#64748b',background:'rgba(100,116,139,0.1)',border:'1px solid rgba(100,116,139,0.25)',borderRadius:'3px',padding:'1px 6px'}}>sem analise</span>}
+                          </div>
+                          {hip&&<div style={{fontSize:'10px',color:'#94a3b8',marginTop:'3px'}}>{hip.nome}</div>}
+                        </div>
+                        <span style={{fontSize:'9px',fontWeight:700,padding:'2px 7px',borderRadius:'4px',color:STATUS_CFG[p.status_clinico||'estavel'].color,background:STATUS_CFG[p.status_clinico||'estavel'].bg,flexShrink:0}}>{STATUS_CFG[p.status_clinico||'estavel'].label}</span>
+                      </div>);
+                    })}
+                </div>}
+                {!homeFilter&&maisGrave&&<div style={{background:'#0f172a',border:'1px solid rgba(239,68,68,0.3)',borderLeft:'3px solid #ef4444',borderRadius:'8px',padding:'14px',marginBottom:'12px',cursor:'pointer'}} onClick={function(){setSel(maisGrave);setScreen('patient');setResult(null);setCaseText('');setSelA(null);}}>
+                  <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'10px'}}>
+                    <span style={{fontSize:'9px',color:'#ef4444',fontWeight:700,letterSpacing:'0.12em'}}>PACIENTE MAIS GRAVE</span>
+                    {analMaisGrave&&<span style={{fontSize:'9px',color:'#64748b'}}>analise {timeAgo(analMaisGrave.created_at)}</span>}
+                  </div>
+                  <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:'12px',marginBottom:Object.keys(svMG).length>0?'10px':0,flexWrap:'wrap'}}>
+                    <div style={{flex:1,minWidth:0}}>
+                      <div style={{fontSize:'14px',fontWeight:700,color:'#f1f5f9'}}>{maisGrave.nome}</div>
+                      <div style={{fontSize:'11px',color:'#94a3b8',marginTop:'3px'}}>{[maisGrave.leito,maisGrave.setor].filter(Boolean).join(' - ')||'Sem setor'}{hipMaisGrave?' — '+hipMaisGrave.nome:''}</div>
+                    </div>
+                    <div style={{display:'flex',gap:'8px'}}>
+                      {qMaisGrave!==null&&qMaisGrave!==undefined&&<div style={{textAlign:'center',background:'rgba(239,68,68,0.08)',border:'1px solid rgba(239,68,68,0.25)',borderRadius:'6px',padding:'6px 10px'}}>
+                        <div style={{fontSize:'18px',fontWeight:700,color:'#ef4444',lineHeight:1}}>{qMaisGrave}/3</div>
+                        <div style={{fontSize:'8px',color:'#64748b',letterSpacing:'0.1em',marginTop:'3px'}}>qSOFA</div>
+                      </div>}
+                      {icMaisGrave&&<div style={{textAlign:'center',background:'rgba(239,68,68,0.08)',border:'1px solid rgba(239,68,68,0.25)',borderRadius:'6px',padding:'6px 10px'}}>
+                        <div style={{fontSize:'18px',fontWeight:700,color:parseFloat(icMaisGrave)>=1?'#ef4444':'#22c55e',lineHeight:1}}>{icMaisGrave}</div>
+                        <div style={{fontSize:'8px',color:'#64748b',letterSpacing:'0.1em',marginTop:'3px'}}>IND.CHQ</div>
+                      </div>}
+                    </div>
+                  </div>
+                  {Object.keys(svMG).length>0&&<div style={{display:'grid',gridTemplateColumns:'repeat(5,1fr)',gap:'5px'}}>
+                    {VT.map(function(v){
+                      var val=svMG[v.k];
+                      if(!val)return(<div key={v.k} style={{background:'#020617',border:'1px solid #1e293b',borderRadius:'5px',padding:'5px',textAlign:'center',opacity:0.4}}><div style={{fontSize:'7px',color:'#475569',marginBottom:'2px'}}>{v.l}</div><div style={{fontSize:'13px',fontWeight:700,color:'#334155'}}>-</div></div>);
+                      var bad=v.bad(parseFloat(val));
+                      return(<div key={v.k} style={{background:'#020617',border:'1px solid '+(bad?'rgba(239,68,68,0.18)':'#1e293b'),borderRadius:'5px',padding:'5px',textAlign:'center'}}><div style={{fontSize:'7px',color:'#475569',marginBottom:'2px'}}>{v.l}</div><div style={{fontSize:'13px',fontWeight:700,color:bad?'#ef4444':'#94a3b8'}}>{val}</div></div>);
+                    })}
+                  </div>}
+                </div>}
+                {!homeFilter&&<div style={{background:'#0f172a',border:'1px solid #1e293b',borderRadius:'8px',padding:'14px'}}>
+                  <div style={{fontSize:'9px',color:'#64748b',letterSpacing:'0.12em',marginBottom:'10px'}}>TODOS OS PACIENTES ATIVOS</div>
+                  {ativos.map(function(p,idx){
+                    var pa=(analyses[p.id]||[])[0];
+                    var hip=pa&&pa.resultado_json&&pa.resultado_json.hipoteses&&pa.resultado_json.hipoteses[0];
+                    var mins=pa?minutesSince(pa.created_at):Infinity;
+                    var atrasado=mins>=alertMin;
+                    var isLast=idx===ativos.length-1;
+                    return(<div key={p.id} onClick={function(){setSel(p);setScreen('patient');setResult(null);setCaseText('');setSelA(null);}} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'8px 0',borderBottom:isLast?'none':'1px solid #1e293b',cursor:'pointer'}}>
+                      <div style={{flex:1,minWidth:0}}>
+                        <div style={{display:'flex',alignItems:'center',gap:'8px',flexWrap:'wrap'}}>
+                          <span style={{fontSize:'12px',fontWeight:700,color:'#f1f5f9'}}>{p.nome}</span>
+                          <span style={{fontSize:'10px',color:'#64748b'}}>{[p.leito,p.setor].filter(Boolean).join(' - ')||'Sem setor'}</span>
+                          {pa&&<span style={{fontSize:'9px',color:atrasado?'#f59e0b':'#22c55e',background:atrasado?'rgba(245,158,11,0.1)':'rgba(34,197,94,0.1)',border:'1px solid '+(atrasado?'rgba(245,158,11,0.3)':'rgba(34,197,94,0.25)'),borderRadius:'3px',padding:'1px 6px'}}>{timeAgo(pa.created_at)}</span>}
+                          {!pa&&<span style={{fontSize:'9px',color:'#64748b',background:'rgba(100,116,139,0.1)',border:'1px solid rgba(100,116,139,0.25)',borderRadius:'3px',padding:'1px 6px'}}>sem analise</span>}
+                        </div>
+                        {hip&&<div style={{fontSize:'10px',color:'#475569',marginTop:'2px'}}>{hip.nome}</div>}
+                      </div>
+                      <span style={{fontSize:'9px',fontWeight:700,padding:'2px 7px',borderRadius:'4px',color:STATUS_CFG[p.status_clinico||'estavel'].color,background:STATUS_CFG[p.status_clinico||'estavel'].bg,flexShrink:0}}>{STATUS_CFG[p.status_clinico||'estavel'].label}</span>
+                    </div>);
+                  })}
+                </div>}
+              </div>);
+            }
+            // ====================== MODO HISTORICO ======================
+            // Coleta meses disponiveis a partir de datas de criacao e desfecho
+            var monthSet={};
+            patients.forEach(function(p){
+              if(p.created_at){var d=new Date(p.created_at);monthSet[d.getFullYear()+'-'+(d.getMonth()+1)]=true;}
+              if(p.desfecho_data){var d2=new Date(p.desfecho_data);monthSet[d2.getFullYear()+'-'+(d2.getMonth()+1)]=true;}
+            });
+            // Tambem inclui meses das analises
+            Object.values(analyses).forEach(function(arr){
+              (arr||[]).forEach(function(a){if(a.created_at){var d=new Date(a.created_at);monthSet[d.getFullYear()+'-'+(d.getMonth()+1)]=true;}});
+            });
+            var months=Object.keys(monthSet).map(function(k){var parts=k.split('-');return{key:k,year:parseInt(parts[0]),month:parseInt(parts[1])};}).sort(function(a,b){return b.year-a.year||b.month-a.month;});
+            if(months.length===0){
+              var now=new Date();
+              months=[{key:now.getFullYear()+'-'+(now.getMonth()+1),year:now.getFullYear(),month:now.getMonth()+1}];
+            }
+            var currentMonth=histMonth||months[0].key;
+            var cmParts=currentMonth.split('-');
+            var cmYear=parseInt(cmParts[0]);
+            var cmMonth=parseInt(cmParts[1]);
+            var monthStart=new Date(cmYear,cmMonth-1,1).getTime();
+            var monthEnd=new Date(cmYear,cmMonth,1).getTime();
+            // Pacientes que estiveram no mes: criados ou com desfecho ou com analise no mes
+            var inMonth=patients.filter(function(p){
+              var c=p.created_at?new Date(p.created_at).getTime():0;
+              var df=p.desfecho_data?new Date(p.desfecho_data).getTime():0;
+              if(c>=monthStart&&c<monthEnd)return true;
+              if(df>=monthStart&&df<monthEnd)return true;
+              var anls=analyses[p.id]||[];
+              return anls.some(function(a){var t=new Date(a.created_at).getTime();return t>=monthStart&&t<monthEnd;});
+            });
+            // Desfechos do mes
+            var desfNoMes=inMonth.filter(function(p){if(!p.desfecho||!p.desfecho_data)return false;var t=new Date(p.desfecho_data).getTime();return t>=monthStart&&t<monthEnd;});
+            var altas=desfNoMes.filter(function(p){return p.desfecho==='alta';});
+            var obitos=desfNoMes.filter(function(p){return p.desfecho==='obito';});
+            var transfs=desfNoMes.filter(function(p){return p.desfecho==='transferencia';});
+            // Permanencia media: dias entre created_at e desfecho_data (para os que tiveram desfecho no mes)
+            var permDays=desfNoMes.map(function(p){if(!p.created_at||!p.desfecho_data)return null;return(new Date(p.desfecho_data).getTime()-new Date(p.created_at).getTime())/(86400000);}).filter(function(x){return x!==null&&x>=0;});
+            var permMedia=permDays.length>0?(permDays.reduce(function(a,b){return a+b;},0)/permDays.length):0;
+            var taxaMort=desfNoMes.length>0?(obitos.length/desfNoMes.length*100):0;
+            // Total de analises no mes
+            var totalAnalises=0;
+            Object.values(analyses).forEach(function(arr){(arr||[]).forEach(function(a){var t=new Date(a.created_at).getTime();if(t>=monthStart&&t<monthEnd)totalAnalises++;});});
+            return(<div>
+              <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'14px',gap:'10px',flexWrap:'wrap'}}>
+                <div style={{display:'flex',background:'#0f172a',border:'1px solid #1e293b',borderRadius:'6px',padding:'2px'}}>
+                  <button onClick={function(){setViewMode('agora');setHomeFilter(null);}} style={{background:'transparent',border:'none',color:'#64748b',padding:'5px 14px',fontSize:'10px',letterSpacing:'0.1em',fontFamily:'monospace',cursor:'pointer',borderRadius:'4px'}}>AGORA</button>
+                  <button onClick={function(){setViewMode('historico');}} style={{background:'#1D9E75',border:'none',color:'#fff',padding:'5px 14px',fontSize:'10px',letterSpacing:'0.1em',fontFamily:'monospace',cursor:'pointer',borderRadius:'4px',fontWeight:700}}>HISTORICO</button>
+                </div>
+                <div style={{display:'flex',alignItems:'center',gap:'6px'}}>
+                  <span style={{fontSize:'9px',color:'#64748b',letterSpacing:'0.1em'}}>MES</span>
+                  <select value={currentMonth} onChange={function(e){setHistMonth(e.target.value);}} style={{background:'#0f172a',border:'1px solid #1e293b',color:'#94a3b8',fontSize:'10px',fontFamily:'monospace',padding:'3px 6px',borderRadius:'4px',cursor:'pointer'}}>
+                    {months.map(function(m){return(<option key={m.key} value={m.key}>{MESES_PT[m.month-1]} {m.year}</option>);})}
+                  </select>
+                </div>
+              </div>
+              <div style={{marginBottom:'12px'}}>
+                <div style={{fontSize:'14px',fontWeight:700,color:'#f1f5f9'}}>{MESES_PT[cmMonth-1]} {cmYear} — Historico</div>
+                <div style={{fontSize:'10px',color:'#475569',marginTop:'2px'}}>{inMonth.length} paciente{inMonth.length!==1?'s':''} no periodo</div>
+              </div>
+              <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:'8px',marginBottom:'12px'}}>
+                {[
+                  {label:'TOTAL',val:inMonth.length,color:'#f1f5f9'},
+                  {label:'ALTAS',val:altas.length,color:'#22c55e'},
+                  {label:'OBITOS',val:obitos.length,color:'#ef4444'},
+                  {label:'TRANSF.',val:transfs.length,color:'#0ea5e9'}
+                ].map(function(m){return(<div key={m.label} style={{background:'#0f172a',border:'1px solid #1e293b',borderRadius:'8px',padding:'12px'}}>
+                  <div style={{fontSize:'26px',fontWeight:700,color:m.color,lineHeight:1}}>{m.val}</div>
+                  <div style={{fontSize:'9px',color:'#475569',marginTop:'6px',letterSpacing:'0.1em'}}>{m.label}</div>
+                </div>);})}
+              </div>
+              {desfNoMes.length>0&&<div style={{background:'#0f172a',border:'1px solid #1e293b',borderRadius:'8px',padding:'14px',marginBottom:'12px'}}>
+                <div style={{fontSize:'9px',color:'#64748b',letterSpacing:'0.12em',marginBottom:'12px'}}>METRICAS DO MES</div>
+                <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:'14px'}}>
+                  <div>
+                    <div style={{fontSize:'9px',color:'#64748b',letterSpacing:'0.1em',marginBottom:'4px'}}>PERMANENCIA MEDIA</div>
+                    <div style={{fontSize:'18px',fontWeight:700,color:'#f1f5f9',lineHeight:1}}>{permMedia.toFixed(1)} <span style={{fontSize:'11px',color:'#64748b'}}>dias</span></div>
+                  </div>
+                  <div>
+                    <div style={{fontSize:'9px',color:'#64748b',letterSpacing:'0.1em',marginBottom:'4px'}}>TAXA DE MORTALIDADE</div>
+                    <div style={{fontSize:'18px',fontWeight:700,color:obitos.length>0?'#ef4444':'#f1f5f9',lineHeight:1}}>{taxaMort.toFixed(1)}<span style={{fontSize:'11px',color:'#64748b'}}>%</span></div>
+                  </div>
+                  <div>
+                    <div style={{fontSize:'9px',color:'#64748b',letterSpacing:'0.1em',marginBottom:'4px'}}>ANALISES TOTAIS</div>
+                    <div style={{fontSize:'18px',fontWeight:700,color:'#1D9E75',lineHeight:1}}>{totalAnalises}</div>
+                  </div>
+                </div>
+              </div>}
+              <div style={{background:'#0f172a',border:'1px solid #1e293b',borderRadius:'8px',padding:'14px'}}>
+                <div style={{fontSize:'9px',color:'#64748b',letterSpacing:'0.12em',marginBottom:'10px'}}>PACIENTES — {MESES_PT[cmMonth-1].toUpperCase()} {cmYear}</div>
+                {inMonth.length===0
+                  ?<div style={{padding:'14px',color:'#475569',fontSize:'11px',textAlign:'center'}}>Nenhum paciente neste periodo.</div>
+                  :inMonth.map(function(p,idx){
+                    var pa=(analyses[p.id]||[])[0];
+                    var hip=pa&&pa.resultado_json&&pa.resultado_json.hipoteses&&pa.resultado_json.hipoteses[0];
+                    var nAnls=(analyses[p.id]||[]).length;
+                    var diasInt=null;
+                    if(p.created_at){
+                      var endT=p.desfecho_data?new Date(p.desfecho_data).getTime():Date.now();
+                      diasInt=Math.floor((endT-new Date(p.created_at).getTime())/86400000);
+                    }
+                    var dc=p.desfecho?DESFECHO_CFG[p.desfecho]:null;
+                    var isLast=idx===inMonth.length-1;
+                    return(<div key={p.id} onClick={function(){setSel(p);setScreen('patient');setResult(null);setCaseText('');setSelA(null);}} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'8px 0',borderBottom:isLast?'none':'1px solid #1e293b',cursor:'pointer'}}>
+                      <div style={{flex:1,minWidth:0}}>
+                        <div style={{display:'flex',alignItems:'center',gap:'8px',flexWrap:'wrap'}}>
+                          <span style={{fontSize:'12px',fontWeight:700,color:'#f1f5f9'}}>{p.nome}</span>
+                          <span style={{fontSize:'10px',color:'#64748b'}}>{[p.leito,p.setor].filter(Boolean).join(' - ')||'Sem setor'}</span>
+                        </div>
+                        <div style={{fontSize:'10px',color:'#475569',marginTop:'3px'}}>{hip?hip.nome:'Sem hipotese'} — {nAnls} analise{nAnls!==1?'s':''}{diasInt!==null?' - '+diasInt+' dia'+(diasInt!==1?'s':''):''}</div>
+                      </div>
+                      {dc
+                        ?<span style={{fontSize:'9px',fontWeight:700,padding:'2px 7px',borderRadius:'4px',color:dc.color,background:dc.bg,flexShrink:0}}>{dc.label}</span>
+                        :<span style={{fontSize:'9px',fontWeight:700,padding:'2px 7px',borderRadius:'4px',color:STATUS_CFG[p.status_clinico||'estavel'].color,background:STATUS_CFG[p.status_clinico||'estavel'].bg,flexShrink:0}}>{STATUS_CFG[p.status_clinico||'estavel'].label}</span>
+                      }
+                    </div>);
+                  })}
+              </div>
+            </div>);
+          })()}
           {screen==='patient'&&sel&&<div className="fin">
             <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:'16px',flexWrap:'wrap',gap:'10px'}}>
               <div>
