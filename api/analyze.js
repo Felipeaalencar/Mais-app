@@ -26,8 +26,11 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: 'Body ausente ou nao-objeto. typeof=' + (typeof body) });
   }
 
-  // Log de debug (aparece nos logs da Vercel)
   console.log('[analyze.js] mode=', body.mode, 'keys=', Object.keys(body));
+
+  // Modelo padrao - se voce tinha outro modelo no analyze.js original,
+  // troque AQUI por aquele.
+  const MODEL = 'claude-sonnet-4-5-20250929';
 
   try {
     let anthropicPayload;
@@ -39,7 +42,7 @@ export default async function handler(req, res) {
         return res.status(400).json({ error: 'messages vazio ou invalido' });
       }
       anthropicPayload = {
-        model: 'claude-sonnet-4-20250514',
+        model: MODEL,
         max_tokens: 1500,
         system: system || 'Voce e um assistente medico de apoio a decisao clinica.',
         messages: messages.map(m => ({ role: m.role, content: m.content }))
@@ -52,7 +55,7 @@ export default async function handler(req, res) {
         return res.status(400).json({ error: 'caseText obrigatorio (modo analise). body keys: ' + Object.keys(body).join(',') });
       }
       anthropicPayload = {
-        model: 'claude-sonnet-4-20250514',
+        model: MODEL,
         max_tokens: 4096,
         system: prompt || '',
         messages: [{ role: 'user', content: caseText }]
