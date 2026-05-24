@@ -1,9 +1,8 @@
 // Vercel Serverless Function - /api/analyze.js
-// Compatível com 2 modos:
+// Compatível com 3 modos:
 //   1) ANALISE (legado): body = { caseText, prompt, attachments? }
 //   2) CONSULT: body = { mode: 'consult', messages: [...], system: '...' }
-//
-// attachments: array de { type: 'image'|'pdf', media_type: string, base64: string }
+//   3) SUMMARY: body = { mode: 'summary', context: '...', system: '...' }
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -15,7 +14,6 @@ export default async function handler(req, res) {
     return res.status(500).json({ error: 'ANTHROPIC_API_KEY nao configurada na Vercel.' });
   }
 
-  // Parser de body blindado
   let body = req.body;
   if (typeof body === 'string') {
     try {
@@ -36,7 +34,6 @@ export default async function handler(req, res) {
     let anthropicPayload;
 
     if (body.mode === 'consult') {
-      // ====== MODO CONSULTOR CLINICO ======
       const { messages, system } = body;
       if (!Array.isArray(messages) || messages.length === 0) {
         return res.status(400).json({ error: 'messages vazio ou invalido' });
@@ -48,6 +45,19 @@ export default async function handler(req, res) {
         messages: messages.map(m => ({ role: m.role, content: m.content }))
       };
       console.log('[analyze.js] CONSULT: msgs=', messages.length, 'sys len=', (system || '').length);
+    } else if (body.mode === 'summary') {
+      // ====== MODO SUMARIO DE DESFECHO ======
+      const { context, system } = body;
+      if (!context || !context.trim()) {
+        return res.status(400).json({ error: 'context obrigatorio (modo summary)' });
+      }
+      anthropicPayload = {
+        model: MODEL,
+        max_tokens: 2000,
+        system: system || 'Voce e um medico intensivista gerando sumario de internacao.',
+        messages: [{ role: 'user', content: 'Gere o sumario de internacao baseado nestes dados:\n\n' + context }]
+      };
+      console.log('[analyze.js] SUMMARY: context len=', context.length);
     } else {
       // ====== MODO ANALISE (legado + anexos) ======
       const { caseText, prompt, attachments } = body;
@@ -55,17 +65,14 @@ export default async function handler(req, res) {
         return res.status(400).json({ error: 'caseText ou attachments obrigatorio. body keys: ' + Object.keys(body).join(',') });
       }
 
-      // Monta conteudo da mensagem do usuario
-      // Anexos primeiro, texto depois (recomendado pelo Anthropic para vision)
       const userContent = [];
       if (Array.isArray(attachments) && attachments.length > 0) {
-        // Valida tamanho total (proteção contra request gigante)
         let totalSize = 0;
         for (const a of attachments) {
           if (a.base64) totalSize += a.base64.length;
         }
-        if (totalSize > 20 * 1024 * 1024) { // 20MB de base64 ~ 15MB de arquivos
-          return res.status(400).json({ error: 'Anexos excedem tamanho total maximo (20MB base64). Reduza a quantidade ou tamanho.' });
+        if (totalSize > 20 * 1024 * 1024) {
+          return res.status(400).json({ error: 'Anexos excedem tamanho total maximo (20MB base64).' });
         }
 
         for (const a of attachments) {
@@ -73,28 +80,18 @@ export default async function handler(req, res) {
           if (a.type === 'pdf' || a.media_type === 'application/pdf') {
             userContent.push({
               type: 'document',
-              source: {
-                type: 'base64',
-                media_type: 'application/pdf',
-                data: a.base64
-              }
+              source: { type: 'base64', media_type: 'application/pdf', data: a.base64 }
             });
           } else {
-            // imagem
             userContent.push({
               type: 'image',
-              source: {
-                type: 'base64',
-                media_type: a.media_type || 'image/jpeg',
-                data: a.base64
-              }
+              source: { type: 'base64', media_type: a.media_type || 'image/jpeg', data: a.base64 }
             });
           }
         }
         console.log('[analyze.js] ANALISE: anexos=', attachments.length, 'total b64 size=', totalSize);
       }
 
-      // Texto do caso clinico (sempre por ultimo)
       if (caseText && caseText.trim()) {
         userContent.push({ type: 'text', text: caseText });
       } else {
