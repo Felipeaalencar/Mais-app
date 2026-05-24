@@ -184,6 +184,93 @@ function PrintView({data,paciente,createdAt,onClose}){
   </div>);
 }
 
+// Renderiza markdown para impressao (sumario no PDF)
+function renderMDForPrint(text){
+  if(!text)return null;
+  var lines=text.split('\n');
+  var out=[];
+  function renderInline(s){
+    var parts=[];var rest=s;var idx=0;
+    while(rest.length>0){
+      var m=rest.match(/\*\*([^*]+)\*\*/);
+      if(!m){parts.push(<span key={idx++}>{rest}</span>);break;}
+      if(m.index>0)parts.push(<span key={idx++}>{rest.substring(0,m.index)}</span>);
+      parts.push(<strong key={idx++}>{m[1]}</strong>);
+      rest=rest.substring(m.index+m[0].length);
+    }
+    return parts;
+  }
+  for(var i=0;i<lines.length;i++){
+    var ln=lines[i];
+    if(/^##\s+/.test(ln)){
+      out.push(<h2 key={i} style={{fontSize:'18px',margin:'14px 0 6px',color:'#0f172a',fontWeight:700}}>{ln.replace(/^##\s+/,'')}</h2>);
+    }else if(/^###\s+/.test(ln)){
+      out.push(<h3 key={i} style={{fontSize:'14px',margin:'10px 0 4px',color:'#1D9E75',fontWeight:700}}>{ln.replace(/^###\s+/,'')}</h3>);
+    }else if(/^\s*-\s+/.test(ln)){
+      out.push(<div key={i} style={{fontSize:'12px',lineHeight:1.6,marginBottom:'3px',paddingLeft:'12px'}}>• {renderInline(ln.replace(/^\s*-\s+/,''))}</div>);
+    }else if(ln.trim()===''){
+      out.push(<div key={i} style={{height:'4px'}}/>);
+    }else{
+      out.push(<p key={i} style={{fontSize:'12px',lineHeight:1.6,margin:'2px 0'}}>{renderInline(ln)}</p>);
+    }
+  }
+  return out;
+}
+
+function SumarioPrintView({sumario,paciente,createdAt,onClose}){
+  var dataGerado=createdAt?fmt(createdAt):new Date().toLocaleString('pt-BR');
+  function buildText(){
+    var L=[];
+    L.push('MAIS — inteligencia clinica');
+    L.push('SUMARIO DE INTERNACAO');
+    L.push('================================');
+    if(paciente){
+      L.push('Paciente: '+(paciente.nome||''));
+      if(paciente.leito)L.push('Leito: '+paciente.leito);
+      if(paciente.setor)L.push('Setor: '+paciente.setor);
+    }
+    L.push('Gerado em: '+dataGerado);
+    L.push('================================');
+    L.push('');
+    // Remove markdown para versao texto
+    var plain=sumario.replace(/\*\*([^*]+)\*\*/g,'$1').replace(/^##\s+/gm,'').replace(/^###\s+/gm,'');
+    L.push(plain);
+    L.push('');
+    L.push('================================');
+    L.push('Nao substitui julgamento medico.');
+    return L.join('\n');
+  }
+  return(<div style={{position:'fixed',inset:0,background:'#fff',zIndex:9999,overflowY:'auto',color:'#111',fontFamily:'Arial,sans-serif',fontSize:'13px'}}>
+    <style>{`@media print{.np{display:none!important}}`}</style>
+    <div style={{maxWidth:'720px',margin:'0 auto',padding:'20px'}}>
+      <div className="np" style={{display:'flex',gap:'8px',marginBottom:'16px',justifyContent:'flex-end'}}>
+        <button onClick={onClose} style={{background:'#f1f5f9',border:'1px solid #e2e8f0',borderRadius:'6px',padding:'7px 14px',cursor:'pointer'}}>Voltar</button>
+        <button onClick={function(){var r=buildText();window.open('https://wa.me/?text='+encodeURIComponent(r),'_blank');}} style={{background:'#25d366',border:'none',borderRadius:'6px',padding:'7px 14px',cursor:'pointer',color:'#fff',fontWeight:700}}>WhatsApp</button>
+        <button onClick={function(){window.print();}} style={{background:'#0ea5e9',border:'none',borderRadius:'6px',padding:'7px 18px',cursor:'pointer',color:'#fff',fontWeight:700}}>Salvar PDF</button>
+      </div>
+      <div style={{background:'#0f172a',borderRadius:'8px',padding:'14px 18px',marginBottom:'14px',display:'flex',alignItems:'center',gap:'14px'}}>
+        <Logo size={40}/>
+        <div style={{color:'#fff'}}>
+          <div style={{fontSize:'15px',fontWeight:700,letterSpacing:'4px',color:'#1D9E75'}}>MAIS</div>
+          <div style={{fontSize:'9px',color:'#94a3b8',letterSpacing:'0.15em'}}>inteligencia clinica.</div>
+        </div>
+      </div>
+      {paciente&&<div style={{background:'#f8fafc',border:'1px solid #e2e8f0',borderRadius:'6px',padding:'10px 14px',marginBottom:'14px',fontSize:'12px',color:'#475569'}}>
+        <div><strong>Paciente:</strong> {paciente.nome}</div>
+        {paciente.leito&&<div><strong>Leito:</strong> {paciente.leito}</div>}
+        {paciente.setor&&<div><strong>Setor:</strong> {paciente.setor}</div>}
+        <div style={{fontSize:'10px',color:'#94a3b8',marginTop:'4px'}}>Gerado em: {dataGerado}</div>
+      </div>}
+      <div style={{padding:'8px 0'}}>
+        {renderMDForPrint(sumario)}
+      </div>
+      <div style={{marginTop:'20px',padding:'10px',background:'#f8fafc',borderRadius:'5px',fontSize:'10px',color:'#94a3b8',textAlign:'center',borderTop:'2px solid #1D9E75'}}>
+        Documento gerado por IA - nao substitui julgamento medico. Sumario para fins de organizacao de prontuario e passagem de caso.
+      </div>
+    </div>
+  </div>);
+}
+
 
 var RANGES={
   FC:{min:60,max:100,label:'FC',unit:'bpm',color:'#0ea5e9'},
@@ -293,6 +380,40 @@ var CONSULT_CHIPS=[
 ];
 
 var CONSULT_SYSTEM=`Voce e um assistente de apoio a decisao clinica para medicos intensivistas brasileiros. Responda de forma direta, baseada em evidencia, em portugues do Brasil. Use formatacao markdown leve (negrito **texto**, listas com -). Seja conciso (max 250 palavras por resposta, salvo pergunta complexa). REGRAS IMPORTANTES: 1) Voce e APOIO, nao prescreve - sempre lembre que a decisao e do medico; 2) Para doses, sempre cite o intervalo recomendado e fatores que ajustam (peso, funcao renal); 3) NAO de diagnostico fechado, sugira hipoteses; 4) Se faltam dados, peca o que precisa; 5) Conhecimento ate o corte do treinamento - alerte se a pergunta puder envolver protocolos muito recentes; 6) Em duvida sobre seguranca, recomende consultar fonte oficial (Micromedex, UpToDate, bula).`;
+
+var SUMARIO_SYSTEM=`Voce e um medico intensivista gerando um SUMARIO DE INTERNACAO formal para prontuario. Receba a sequencia de analises clinicas de um paciente (ordem cronologica) e o desfecho final. Gere um sumario clinico em portugues do Brasil, formato markdown, com estas secoes EXATAS:
+
+## Sumario de Internacao
+
+**Per\u00edodo:** [data admissao] a [data desfecho] ([N] dias)
+**Desfecho:** [Alta / Transferencia / Obito]
+
+### Diagnostico principal
+[Hipotese mais provavel consolidada das analises, 1-2 linhas]
+
+### Quadro inicial
+[Resumo da apresentacao na admissao, 2-3 linhas: queixa, comorbidades, sinais vitais iniciais relevantes]
+
+### Evolucao clinica
+[Liste em bullets cronologicos os marcos relevantes do internamento, agrupando por fase. Ex:
+- D1-D2: [eventos]
+- D3-D5: [eventos]
+- D6+: [eventos]]
+
+### Intervencoes principais
+[Bullets das intervencoes mais relevantes: antibioticos, drogas vasoativas, ventilacao, procedimentos, etc.]
+
+### Desfecho final
+[2-3 linhas: estado no momento do desfecho, sequelas se houve, encaminhamentos]
+
+REGRAS:
+1) Use linguagem medica formal, objetiva. Sem floreios.
+2) NAO invente dados - se faltar informacao, omita a sub-secao ou diga "Sem dados registrados".
+3) NAO prescreva medicamentos como ordem - apenas descreva o que foi feito.
+4) Maximo 400 palavras no total.
+5) Use exatamente os cabecalhos com ## e ### como acima.
+6) NAO mencione nomes proprios, prontuarios ou identificadores - mantenha anonimo.`;
+
 
 // Renderizador leve de markdown para mensagens do consultor
 function renderMD(text){
@@ -437,6 +558,9 @@ function App(){
   const [attachments,setAttachments]=useState([]);
   const [attachErr,setAttachErr]=useState('');
   const fileInputRef=React.useRef(null);
+  const [sumarioLoading,setSumarioLoading]=useState(false);
+  const [sumarioErr,setSumarioErr]=useState('');
+  const [showSumarioPDF,setShowSumarioPDF]=useState(false);
   const [loading,setLoading]=useState(false);
   const [result,setResult]=useState(null);
   const [err,setErr]=useState(null);
@@ -654,12 +778,77 @@ function App(){
     finally{setLoading(false)}
   }
 
+  async function generateSumario(){
+    if(!sel||!sel.desfecho||sumarioLoading)return;
+    setSumarioLoading(true);
+    setSumarioErr('');
+    try{
+      var anls=patA;
+      if(!anls||anls.length===0){
+        setSumarioErr('Paciente sem analises - nao e possivel gerar sumario.');
+        return;
+      }
+      // Monta contexto com todas as analises em ordem cronologica
+      var sortedAnls=[...anls].sort(function(a,b){return new Date(a.created_at)-new Date(b.created_at);});
+      var ctxParts=[];
+      ctxParts.push('DADOS DO PACIENTE:');
+      ctxParts.push('Sexo/Idade: '+(sortedAnls[0].resultado_json?.paciente?.sexo||'N/D')+' '+(sortedAnls[0].resultado_json?.paciente?.idade||'')+'a');
+      ctxParts.push('Admissao: '+fmt(sel.created_at));
+      ctxParts.push('Desfecho: '+DESFECHO_CFG[sel.desfecho].label+' em '+(sel.desfecho_data?fmt(sel.desfecho_data):'data nao registrada'));
+      var diasInt=null;
+      if(sel.created_at&&sel.desfecho_data){
+        diasInt=Math.floor((new Date(sel.desfecho_data).getTime()-new Date(sel.created_at).getTime())/86400000);
+        ctxParts.push('Tempo de internacao: '+diasInt+' dias');
+      }
+      ctxParts.push('');
+      ctxParts.push('SEQUENCIA DE ANALISES ('+sortedAnls.length+' total):');
+      ctxParts.push('');
+      sortedAnls.forEach(function(a,idx){
+        var rj=a.resultado_json||{};
+        ctxParts.push('--- Analise '+(idx+1)+' ('+fmt(a.created_at)+') ---');
+        if(rj.resumo)ctxParts.push('Resumo: '+rj.resumo);
+        if(rj.hipoteses&&rj.hipoteses[0])ctxParts.push('Hipotese principal: '+rj.hipoteses[0].nome+' ('+rj.hipoteses[0].prob+')');
+        var sv=rj.paciente&&rj.paciente.sinais_vitais;
+        if(sv&&Object.keys(sv).length>0){
+          ctxParts.push('Sinais vitais: '+Object.entries(sv).map(function(kv){return kv[0]+'='+kv[1];}).join(', '));
+        }
+        if(rj.red_flags&&rj.red_flags.length>0)ctxParts.push('Red flags: '+rj.red_flags.join('; '));
+        if(rj.paciente&&rj.paciente.intervencoes&&rj.paciente.intervencoes.length>0){
+          ctxParts.push('Intervencoes: '+rj.paciente.intervencoes.join('; '));
+        }
+        ctxParts.push('');
+      });
+      var contextoCompleto=ctxParts.join('\n');
+      var res=await fetch('/api/analyze',{
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({mode:'summary',context:contextoCompleto,system:SUMARIO_SYSTEM})
+      });
+      if(!res.ok){var t=await res.text();throw new Error('API '+res.status+': '+t.slice(0,200));}
+      var data=await res.json();
+      if(data.error)throw new Error(data.error);
+      var raw=(data.content||[]).map(function(b){return b.type==='text'?b.text:'';}).join('')||'';
+      if(!raw.trim())throw new Error('Resposta vazia.');
+      // Salva no Supabase
+      var now=new Date().toISOString();
+      var{data:upd,error}=await db.from('pacientes').update({desfecho_resumo:raw,desfecho_resumo_data:now}).eq('id',sel.id).select().single();
+      if(error)throw new Error('Erro ao salvar: '+error.message);
+      setSel(upd);
+      setPatients(function(prev){return prev.map(function(p){return p.id===sel.id?upd:p;});});
+    }catch(e){
+      setSumarioErr(e.message);
+    }finally{
+      setSumarioLoading(false);
+    }
+  }
+
   const patA=sel?analyses[sel.id]||[]:[];
   const filtered=patients.filter(p=>p.nome.toLowerCase().includes(search.toLowerCase())||(p.leito||'').toLowerCase().includes(search.toLowerCase()));
 
   if(!unlocked)return <PinScreen onUnlock={function(){setUnlocked(true);}}/>;
   if(dbLoad)return <div style={{display:'flex',alignItems:'center',justifyContent:'center',height:'100vh',background:'#020617',color:'#1D9E75',fontFamily:'monospace',fontSize:'14px'}}>Carregando...</div>;
   if(showPDF&&(result||selA?.resultado_json))return <PrintView data={result||selA.resultado_json} paciente={sel} createdAt={selA?.created_at} onClose={()=>setShowPDF(false)}/>;
+  if(showSumarioPDF&&sel?.desfecho_resumo)return <SumarioPrintView sumario={sel.desfecho_resumo} paciente={sel} createdAt={sel.desfecho_resumo_data} onClose={()=>setShowSumarioPDF(false)}/>;
 
   return(
     <div style={{minHeight:'100vh',background:'#020617',fontFamily:'monospace',color:'#cbd5e1',fontSize:'13px'}}>
@@ -1124,6 +1313,34 @@ function App(){
             </div>}
               </div>
             </div>
+            {sel.desfecho&&<div style={{background:'#0f172a',border:'1px solid #1e293b',borderLeft:'3px solid '+DESFECHO_CFG[sel.desfecho].color,borderRadius:'8px',padding:'14px',marginBottom:'12px'}}>
+              <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:sel.desfecho_resumo?'10px':'0',flexWrap:'wrap',gap:'8px'}}>
+                <div>
+                  <div style={{fontSize:'9px',color:DESFECHO_CFG[sel.desfecho].color,fontWeight:700,letterSpacing:'0.12em',marginBottom:'4px'}}>SUMARIO DE INTERNACAO</div>
+                  {sel.desfecho_resumo
+                    ?<div style={{fontSize:'10px',color:'#64748b'}}>Gerado em {sel.desfecho_resumo_data?fmt(sel.desfecho_resumo_data):'data nao registrada'}</div>
+                    :<div style={{fontSize:'11px',color:'#94a3b8'}}>Gere um resumo consolidado da internacao para prontuario ou passagem de caso.</div>
+                  }
+                </div>
+                <div style={{display:'flex',gap:'6px',flexWrap:'wrap'}}>
+                  {sel.desfecho_resumo&&<>
+                    <button className="sbtn" onClick={function(){setShowSumarioPDF(true);}}>PDF</button>
+                    <button className="sbtn" onClick={function(){var plain=sel.desfecho_resumo.replace(/\*\*([^*]+)\*\*/g,'$1').replace(/^##\s+/gm,'').replace(/^###\s+/gm,'');var header='SUMARIO DE INTERNACAO\nPaciente: '+sel.nome+(sel.leito?' - Leito '+sel.leito:'')+'\n\n';window.open('https://wa.me/?text='+encodeURIComponent(header+plain),'_blank');}} style={{color:'#25d366',borderColor:'#25d36640'}}>WhatsApp</button>
+                  </>}
+                  <button className="btn" onClick={generateSumario} disabled={sumarioLoading||patA.length===0} style={{fontSize:'11px',opacity:sumarioLoading||patA.length===0?0.5:1}}>
+                    {sumarioLoading?'Gerando...':(sel.desfecho_resumo?'Regenerar':'+ Gerar resumo')}
+                  </button>
+                </div>
+              </div>
+              {sumarioErr&&<div style={{background:'#450a0a',border:'1px solid #ef444460',borderRadius:'5px',padding:'8px 12px',fontSize:'11px',color:'#fda4af',marginTop:'8px'}}>ERRO: {sumarioErr}</div>}
+              {sumarioLoading&&<div style={{display:'flex',alignItems:'center',gap:'10px',padding:'12px 0'}}>
+                <div style={{width:'18px',height:'18px',border:'2px solid #1e293b',borderTop:'2px solid '+DESFECHO_CFG[sel.desfecho].color,borderRadius:'50%',animation:'spin 1s linear infinite'}}/>
+                <span style={{fontSize:'11px',color:'#64748b'}}>Consolidando {patA.length} analise{patA.length!==1?'s':''} em um sumario...</span>
+              </div>}
+              {sel.desfecho_resumo&&!sumarioLoading&&<div style={{background:'#020617',border:'1px solid #1e293b',borderRadius:'6px',padding:'12px 14px',fontSize:'12px',color:'#cbd5e1',marginTop:'8px'}}>
+                {renderMD(sel.desfecho_resumo)}
+              </div>}
+            </div>}
             {patA.length===0&&<div style={{background:'#0f172a',border:'1px dashed #1e293b',borderRadius:'8px',padding:'32px',textAlign:'center'}}><div style={{fontSize:'12px',color:'#334155',marginBottom:'12px'}}>Nenhuma analise ainda.</div><button className="btn" onClick={()=>{setResult(null);setCaseText('');setSaved('');setScreen('new')}}>+ Criar primeira analise</button></div>}
             {patA.map(a=>(<div key={a.id} onClick={()=>{setSelA(a);setResult(a.resultado_json);setScreen('detail')}} style={{background:'#0f172a',border:'1px solid #1e293b',borderRadius:'7px',padding:'12px 14px',marginBottom:'8px',cursor:'pointer'}}>
               <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'7px'}}><span style={{fontSize:'11px',color:'#38bdf8',fontWeight:600}}>{fmt(a.created_at)}</span>{a.resultado_json?.urgente&&<span style={{fontSize:'9px',background:'#ef444420',color:'#ef4444',border:'1px solid #ef444440',borderRadius:'20px',padding:'1px 7px'}}>urgente</span>}</div>
