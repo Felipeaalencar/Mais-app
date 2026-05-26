@@ -83,7 +83,7 @@ const SUPA_URL = 'https://xyyhxxaxmyicvgijcqau.supabase.co';
 // Tenta no maximo 2x; se a 1a tentativa der timeout/504/502/503, tenta de novo
 async function fetchWithRetry(url, options, opts){
   opts = opts || {};
-  var maxRetries = opts.maxRetries || 1; // 1 retry = 2 tentativas no total
+  var maxRetries = opts.maxRetries || 3; // 3 retries = 4 tentativas no total
   var onRetry = opts.onRetry || function(){};
   var attempt = 0;
   var lastError = null;
@@ -869,7 +869,7 @@ function App(){
         });
       }
       const res=await fetchWithRetry('/api/analyze',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)},{
-        onRetry:function(att,reason){setRetryMsg('Servidor demorou. Tentando novamente ('+att+'/1)...');}
+        onRetry:function(att,reason){setRetryMsg('Servidor demorou. Tentando novamente ('+att+'/3)...');}
       });
       if(!res.ok){const t=await res.text();throw new Error('API '+res.status+': '+t.slice(0,200))}
       const data=await res.json();
@@ -949,7 +949,7 @@ function App(){
         headers:{'Content-Type':'application/json'},
         body:JSON.stringify({mode:'summary',context:contextoCompleto,system:SUMARIO_SYSTEM})
       },{
-        onRetry:function(att){setSumarioErr('Servidor demorou. Tentando novamente ('+att+'/1)...');}
+        onRetry:function(att){setSumarioErr('Servidor demorou. Tentando novamente ('+att+'/3)...');}
       });
       if(!res.ok){var t=await res.text();throw new Error('API '+res.status+': '+t.slice(0,200));}
       var data=await res.json();
