@@ -78,6 +78,40 @@ function useIsMobile(){
 }
 
 const SUPA_URL = 'https://xyyhxxaxmyicvgijcqau.supabase.co';
+
+// Fetch com retry automatico para timeouts do Vercel/Anthropic
+// Tenta no maximo 2x; se a 1a tentativa der timeout/504/502/503, tenta de novo
+async function fetchWithRetry(url, options, opts){
+  opts = opts || {};
+  var maxRetries = opts.maxRetries || 1; // 1 retry = 2 tentativas no total
+  var onRetry = opts.onRetry || function(){};
+  var attempt = 0;
+  var lastError = null;
+  while(attempt <= maxRetries){
+    try{
+      var res = await fetch(url, options);
+      // 504/502/503 = problemas transientes do gateway - vale tentar de novo
+      if((res.status===504||res.status===502||res.status===503)&&attempt<maxRetries){
+        attempt++;
+        onRetry(attempt, 'gateway-error');
+        continue;
+      }
+      return res;
+    }catch(err){
+      lastError = err;
+      // Erros de rede - vale tentar de novo
+      if(attempt<maxRetries){
+        attempt++;
+        onRetry(attempt, 'network-error');
+        continue;
+      }
+      throw err;
+    }
+  }
+  if(lastError)throw lastError;
+  throw new Error('Falha apos '+(maxRetries+1)+' tentativas');
+}
+
 const SUPA_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inh5eWh4eGF4bXlpY3ZnaWpjcWF1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc2Njk5MjksImV4cCI6MjA5MzI0NTkyOX0.yfmTot10KpQTZtztv2y1Jf0DHLgxwIxs3xMe1OgPE9s';
 const db = supabase.createClient(SUPA_URL, SUPA_KEY);
 
@@ -619,6 +653,7 @@ function App(){
   const [showReabrirDesfecho,setShowReabrirDesfecho]=useState(false);
   const [reabrirLoading,setReabrirLoading]=useState(false);
   const [loading,setLoading]=useState(false);
+  const [retryMsg,setRetryMsg]=useState('');
   const [result,setResult]=useState(null);
   const [err,setErr]=useState(null);
   const [saved,setSaved]=useState('');
@@ -693,7 +728,7 @@ function App(){
     // Pega ultimas 8 mensagens (4 trocas) + a nova
     var historyForApi=newMsgs.slice(-8).map(function(m){return{role:m.role,content:m.content};});
     try{
-      var res=await fetch('/api/analyze',{
+      var res=await fetchWithRetry('/api/analyze',{
         method:'POST',
         headers:{'Content-Type':'application/json'},
         body:JSON.stringify({mode:'consult',messages:historyForApi,system:system})
@@ -825,7 +860,7 @@ function App(){
 
   async function analyze(){
     if(!caseText.trim()&&attachments.length===0)return;
-    setLoading(true);setErr(null);setResult(null);setSaved('');
+    setLoading(true);setErr(null);setResult(null);setSaved('');setRetryMsg('');
     try{
       var payload = { caseText: caseText, prompt: PROMPT };
       if (attachments.length > 0) {
@@ -833,7 +868,9 @@ function App(){
           return { type: a.type, media_type: a.media_type, base64: a.base64 };
         });
       }
-      const res=await fetch('/api/analyze',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+      const res=await fetchWithRetry('/api/analyze',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)},{
+        onRetry:function(att,reason){setRetryMsg('Servidor demorou. Tentando novamente ('+att+'/1)...');}
+      });
       if(!res.ok){const t=await res.text();throw new Error('API '+res.status+': '+t.slice(0,200))}
       const data=await res.json();
       if(data.error)throw new Error(data.error);
@@ -846,7 +883,7 @@ function App(){
       // Limpa anexos apos sucesso
       setAttachments([]);
     }catch(e){setErr(e.message)}
-    finally{setLoading(false)}
+    finally{setLoading(false);setRetryMsg('');}
   }
 
   async function reabrirDesfecho(){
@@ -907,10 +944,12 @@ function App(){
         ctxParts.push('');
       });
       var contextoCompleto=ctxParts.join('\n');
-      var res=await fetch('/api/analyze',{
+      var res=await fetchWithRetry('/api/analyze',{
         method:'POST',
         headers:{'Content-Type':'application/json'},
         body:JSON.stringify({mode:'summary',context:contextoCompleto,system:SUMARIO_SYSTEM})
+      },{
+        onRetry:function(att){setSumarioErr('Servidor demorou. Tentando novamente ('+att+'/1)...');}
       });
       if(!res.ok){var t=await res.text();throw new Error('API '+res.status+': '+t.slice(0,200));}
       var data=await res.json();
@@ -923,6 +962,7 @@ function App(){
       if(error)throw new Error('Erro ao salvar: '+error.message);
       setSel(upd);
       setPatients(function(prev){return prev.map(function(p){return p.id===sel.id?upd:p;});});
+      setSumarioErr(''); // limpa mensagem de retry se houve
     }catch(e){
       setSumarioErr(e.message);
     }finally{
@@ -1515,8 +1555,11 @@ function App(){
                   {micErr&&<span style={{fontSize:'10px',color:'#f59e0b'}}>{micErr}</span>}
                   {!isRec&&!micErr&&<span style={{fontSize:'10px',color:getCharColor(caseText.length),fontWeight:caseText.length>=2000?700:400}}>{caseText.length}/{MAX_CASE_CHARS} chars{attachments.length>0?' + '+attachments.length+' anexo'+(attachments.length>1?'s':''):''}{caseText.length>=MAX_CASE_CHARS?' (LIMITE)':caseText.length>=2000?' (proximo do limite)':''}</span>}
                 </div>
-                <button className="btn2" onClick={analyze} disabled={loading||(caseText.trim().length<10&&attachments.length===0)||caseText.length>=MAX_CASE_CHARS} style={{opacity:loading||(caseText.trim().length<10&&attachments.length===0)||caseText.length>=MAX_CASE_CHARS?0.4:1}}>{loading?'Analisando...':(attachments.length>0?'Analisar com exames':'Analisar caso')}</button>
+                <button className="btn2" onClick={analyze} disabled={loading||(caseText.trim().length<10&&attachments.length===0)||caseText.length>=MAX_CASE_CHARS} style={{opacity:loading||(caseText.trim().length<10&&attachments.length===0)||caseText.length>=MAX_CASE_CHARS?0.4:1}}>{loading?(retryMsg?'Tentando de novo...':'Analisando...'):(attachments.length>0?'Analisar com exames':'Analisar caso')}</button>
               </div>
+              {retryMsg&&loading&&<div style={{marginTop:'8px',background:'rgba(245,158,11,0.1)',border:'1px solid rgba(245,158,11,0.3)',borderRadius:'5px',padding:'8px 12px',fontSize:'11px',color:'#fbbf24'}}>
+                ⏱ {retryMsg}
+              </div>}
             </div>
             {err&&<div style={{background:'#450a0a',border:'1px solid #ef444460',borderRadius:'6px',padding:'10px 14px',marginBottom:'10px',fontSize:'11px',color:'#fda4af',wordBreak:'break-all'}}>ERRO: {err}</div>}
             {saved&&<div style={{background:'#022c22',border:'1px solid #14532d',borderRadius:'6px',padding:'9px 12px',marginBottom:'10px',fontSize:'11px',color:'#86efac'}}>{saved}</div>}
