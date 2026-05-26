@@ -503,6 +503,14 @@ function renderMD(text){
 // ============ HELPERS DE ANEXOS ============
 const MAX_ATTACHMENTS = 5;
 const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
+const MAX_CASE_CHARS = 2500;
+
+function getCharColor(len){
+  if(len>=MAX_CASE_CHARS)return '#ef4444';
+  if(len>=2000)return '#ef4444';
+  if(len>=1500)return '#f59e0b';
+  return '#22c55e';
+}
 const COMPRESS_MAX_DIM = 1280;
 const COMPRESS_QUALITY = 0.82;
 
@@ -608,6 +616,8 @@ function App(){
   const [sumarioLoading,setSumarioLoading]=useState(false);
   const [sumarioErr,setSumarioErr]=useState('');
   const [showSumarioPDF,setShowSumarioPDF]=useState(false);
+  const [showReabrirDesfecho,setShowReabrirDesfecho]=useState(false);
+  const [reabrirLoading,setReabrirLoading]=useState(false);
   const [loading,setLoading]=useState(false);
   const [result,setResult]=useState(null);
   const [err,setErr]=useState(null);
@@ -745,14 +755,28 @@ function App(){
   function toggleMic(){
     setMicErr("");
     if(isRec){if(recRef.current)recRef.current.stop();setIsRec(false);return;}
+    // Detecta iOS (Safari/Chrome no iPhone/iPad)
+    var isIOS=/iPad|iPhone|iPod/.test(navigator.userAgent)||(navigator.platform==='MacIntel'&&navigator.maxTouchPoints>1);
     var SR=window.SpeechRecognition||window.webkitSpeechRecognition;
-    if(!SR){setMicErr("Use o microfone do teclado iOS");return;}
+    if(!SR||isIOS){
+      setMicErr(isIOS?"No iPhone, use o microfone do teclado (icone do microfone ao lado da barra de espaco)":"Reconhecimento de voz nao suportado neste navegador. Use o microfone do teclado.");
+      return;
+    }
     var r=new SR();r.lang="pt-BR";r.continuous=true;r.interimResults=true;
     r.onstart=function(){setIsRec(true);};
     r.onend=function(){setIsRec(false);};
-    r.onerror=function(e){setIsRec(false);setMicErr("Erro: "+e.error);};
+    r.onerror=function(e){
+      setIsRec(false);
+      var msg=e.error;
+      if(msg==='not-allowed')msg='Permissao negada. Use o microfone do teclado do celular.';
+      else if(msg==='no-speech')msg='Nenhuma voz detectada. Tente falar mais alto.';
+      else if(msg==='network')msg='Sem internet para reconhecer voz.';
+      else if(msg==='aborted')msg='Gravacao cancelada.';
+      setMicErr(msg);
+    };
     r.onresult=function(e){var t="";for(var i=e.resultIndex;i<e.results.length;i++){if(e.results[i].isFinal)t+=e.results[i][0].transcript+" ";}if(t)setCaseText(function(prev){return (prev+t).trim()+" ";});};
-    recRef.current=r;r.start();
+    recRef.current=r;
+    try{r.start();}catch(err){setMicErr('Erro ao iniciar: '+err.message);}
   }
   async function createP(){if(!npN.trim())return;const{data,error}=await db.from('pacientes').insert({nome:npN.trim(),leito:npL.trim(),setor:npS.trim()}).select().single();if(!error){setPatients(prev=>[data,...prev]);setShowNP(false);setNpN('');setNpL('');setNpS('');setSel(data);setScreen('new');setResult(null);setCaseText('')}}
 
@@ -825,6 +849,23 @@ function App(){
     finally{setLoading(false)}
   }
 
+  async function reabrirDesfecho(){
+    if(!sel||!sel.desfecho||reabrirLoading)return;
+    setReabrirLoading(true);
+    try{
+      // Limpa desfecho mas mantém desfecho_resumo (caso usuário queira referência depois)
+      const{data:upd,error}=await db.from('pacientes').update({desfecho:null,desfecho_data:null}).eq('id',sel.id).select().single();
+      if(error)throw new Error('Erro ao reabrir: '+error.message);
+      setSel(upd);
+      setPatients(function(prev){return prev.map(function(p){return p.id===sel.id?upd:p;});});
+      setShowReabrirDesfecho(false);
+    }catch(e){
+      alert('Erro ao reabrir desfecho: '+e.message);
+    }finally{
+      setReabrirLoading(false);
+    }
+  }
+
   async function generateSumario(){
     if(!sel||!sel.desfecho||sumarioLoading)return;
     setSumarioLoading(true);
@@ -891,6 +932,10 @@ function App(){
 
   const patA=sel?analyses[sel.id]||[]:[];
   const filtered=patients.filter(p=>p.nome.toLowerCase().includes(search.toLowerCase())||(p.leito||'').toLowerCase().includes(search.toLowerCase()));
+  const filteredAtivos=filtered.filter(function(p){return !p.desfecho;});
+  const filteredArquivados=filtered.filter(function(p){return !!p.desfecho;}).sort(function(a,b){
+    return new Date(b.desfecho_data||b.created_at).getTime()-new Date(a.desfecho_data||a.created_at).getTime();
+  });
 
   if(!unlocked)return <PinScreen onUnlock={function(){setUnlocked(true);}}/>;
   if(dbLoad)return <div style={{display:'flex',alignItems:'center',justifyContent:'center',height:'100vh',background:'#020617',color:'#1D9E75',fontFamily:'monospace',fontSize:'14px'}}>Carregando...</div>;
@@ -944,7 +989,8 @@ function App(){
           <div style={{flex:1,overflowY:'auto',padding:'0 8px 8px'}}>
             {dbLoad&&<div style={{textAlign:'center',padding:'16px',color:'#334155',fontSize:'11px'}}>Carregando...</div>}
             {!dbLoad&&filtered.length===0&&<div style={{fontSize:'11px',color:'#334155',textAlign:'center',padding:'16px 8px'}}>Nenhum paciente.</div>}
-            {filtered.map(p=>(<div key={p.id} onClick={()=>{setSel(p);setScreen('patient');setResult(null);setCaseText('');setSelA(null);if(isMobile)setShowMobileNav(false);}} className={'prow'+(sel?.id===p.id?' act':'')}>
+            {/* PACIENTES ATIVOS */}
+            {filteredAtivos.map(p=>(<div key={p.id} onClick={()=>{setSel(p);setScreen('patient');setResult(null);setCaseText('');setSelA(null);if(isMobile)setShowMobileNav(false);}} className={'prow'+(sel?.id===p.id?' act':'')}>
               <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'2px'}}>
                 <span style={{fontWeight:600,fontSize:'12px',color:'#f1f5f9'}}>{p.nome}</span>
                 <span onClick={function(e){e.stopPropagation();if(sel&&sel.id===p.id)setShowStatusEdit(true);}} style={{fontSize:'8px',fontWeight:700,padding:'1px 5px',borderRadius:'3px',cursor:'pointer',color:STATUS_CFG[p.status_clinico||'estavel'].color,background:STATUS_CFG[p.status_clinico||'estavel'].color+'20'}}>{STATUS_CFG[p.status_clinico||'estavel'].label}</span>
@@ -952,6 +998,25 @@ function App(){
               <div style={{fontSize:'10px',color:'#64748b'}}>{[p.leito,p.setor].filter(Boolean).join(' - ')||'Sem setor'}</div>
               {(analyses[p.id]||[]).length>0&&<div style={{fontSize:'9px',color:'#334155',marginTop:'2px'}}>{(analyses[p.id]||[]).length} analise{(analyses[p.id]||[]).length>1?'s':''}</div>}
             </div>))}
+            {/* SEPARADOR + PACIENTES ARQUIVADOS */}
+            {filteredArquivados.length>0&&<>
+              <div style={{display:'flex',alignItems:'center',gap:'6px',margin:'14px 4px 6px',paddingTop:'10px',borderTop:'1px solid #1e293b'}}>
+                <span style={{fontSize:'8px',color:'#475569',letterSpacing:'0.15em',fontWeight:700}}>ARQUIVADOS</span>
+                <span style={{fontSize:'8px',color:'#334155'}}>({filteredArquivados.length})</span>
+              </div>
+              {filteredArquivados.map(p=>{
+                var desfechoLabel=p.desfecho==='alta'?'Alta':p.desfecho==='transferencia'?'Transf':'Obito';
+                var desfechoColor=p.desfecho==='alta'?'#22c55e':p.desfecho==='transferencia'?'#f59e0b':'#94a3b8';
+                return(<div key={p.id} onClick={()=>{setSel(p);setScreen('patient');setResult(null);setCaseText('');setSelA(null);if(isMobile)setShowMobileNav(false);}} className={'prow'+(sel?.id===p.id?' act':'')} style={{opacity:0.65}}>
+                  <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'2px'}}>
+                    <span style={{fontWeight:500,fontSize:'12px',color:'#94a3b8'}}>{p.nome}</span>
+                    <span style={{fontSize:'8px',fontWeight:700,padding:'1px 5px',borderRadius:'3px',color:desfechoColor,background:desfechoColor+'20'}}>{desfechoLabel}</span>
+                  </div>
+                  <div style={{fontSize:'10px',color:'#475569'}}>{[p.leito,p.setor].filter(Boolean).join(' - ')||'Sem setor'}</div>
+                  {p.desfecho_data&&<div style={{fontSize:'9px',color:'#334155',marginTop:'2px'}}>{fmt(p.desfecho_data)}</div>}
+                </div>);
+              })}
+            </>}
           </div>
         </div>
         <div style={{flex:1,overflowY:'auto',padding:isMobile?'12px':'16px'}}>
@@ -1318,7 +1383,10 @@ function App(){
               <div style={{marginBottom:'14px'}}>
                 <div style={{fontSize:'18px',fontWeight:700,color:'#f1f5f9'}}>{sel.nome}</div>
                 <div style={{fontSize:'12px',color:'#64748b',marginTop:'4px'}}>{[sel.leito,sel.setor].filter(Boolean).join(' - ')||'Sem setor'}</div>
-                {sel.desfecho&&<span style={{display:'inline-block',marginTop:'8px',fontSize:'11px',fontWeight:700,padding:'3px 10px',borderRadius:'5px',color:sel.desfecho==='alta'?'#22c55e':sel.desfecho==='transferencia'?'#f59e0b':'#94a3b8',background:sel.desfecho==='alta'?'#022c22':sel.desfecho==='transferencia'?'#1c1000':'#1e293b'}}>{sel.desfecho==='alta'?'Alta':sel.desfecho==='transferencia'?'Transferido':'Obito'}</span>}
+                {sel.desfecho&&<div style={{display:'flex',alignItems:'center',gap:'8px',marginTop:'8px',flexWrap:'wrap'}}>
+                  <span style={{fontSize:'11px',fontWeight:700,padding:'3px 10px',borderRadius:'5px',color:sel.desfecho==='alta'?'#22c55e':sel.desfecho==='transferencia'?'#f59e0b':'#94a3b8',background:sel.desfecho==='alta'?'#022c22':sel.desfecho==='transferencia'?'#1c1000':'#1e293b'}}>{sel.desfecho==='alta'?'Alta':sel.desfecho==='transferencia'?'Transferido':'Obito'}</span>
+                  <button onClick={function(){setShowReabrirDesfecho(true);}} style={{background:'transparent',border:'1px solid #1e293b',color:'#64748b',fontSize:'10px',padding:'3px 8px',borderRadius:'4px',cursor:'pointer',fontFamily:'monospace'}}>Reabrir</button>
+                </div>}
                 <button className="btn" onClick={()=>{setResult(null);setCaseText('');setSaved('');setScreen('new')}} style={{width:'100%',padding:'13px',fontSize:'14px',marginTop:'14px'}}>+ Nova analise</button>
                 <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'6px',marginTop:'8px'}}>
                   <button className="sbtn" onClick={()=>{setEditN(sel.nome);setEditL(sel.leito||'');setEditS(sel.setor||'');setEditPat(true)}} style={{padding:'11px',fontSize:'12px'}}>Editar</button>
@@ -1356,42 +1424,7 @@ function App(){
                 {!editPat&&<button className="btn" onClick={()=>{setResult(null);setCaseText('');setSaved('');setScreen('new')}}>+ Nova analise</button>}
                 {!editPat&&!sel.desfecho&&<button className="sbtn" style={{color:'#64748b'}} onClick={()=>setShowDesfecho(true)}>Desfecho</button>}
                 {!editPat&&sel.desfecho&&<span style={{fontSize:'10px',fontWeight:700,padding:'3px 8px',borderRadius:'5px',color:sel.desfecho==='alta'?'#22c55e':sel.desfecho==='transferencia'?'#f59e0b':'#94a3b8',background:sel.desfecho==='alta'?'#022c22':sel.desfecho==='transferencia'?'#1c1000':'#1e293b'}}>{sel.desfecho==='alta'?'Alta':sel.desfecho==='transferencia'?'Transferido':'Obito'}</span>}
-            {showStatusEdit&&<div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.75)',zIndex:200,display:'flex',alignItems:'center',justifyContent:'center'}} onClick={()=>setShowStatusEdit(false)}>
-              <div style={{background:'#0f172a',border:'1px solid #1e293b',borderRadius:'12px',padding:'20px',width:'260px'}} onClick={function(e){e.stopPropagation();}}>
-                <div style={{fontSize:'11px',color:'#64748b',marginBottom:'14px',letterSpacing:'0.1em'}}>STATUS CLINICO</div>
-                {[{k:'estavel',l:'Estavel',c:'#22c55e'},{k:'atencao',l:'Atencao',c:'#f59e0b'},{k:'grave',l:'Grave',c:'#ef4444'},{k:'critico',l:'Critico',c:'#b91c1c'}].map(function(item){return(
-                  <div key={item.k} onClick={async function(){
-                    await db.from('pacientes').update({status_clinico:item.k}).eq('id',sel.id);
-                    setSel(function(p){return Object.assign({},p,{status_clinico:item.k});});
-                    setPatients(function(prev){return prev.map(function(p){return p.id===sel.id?Object.assign({},p,{status_clinico:item.k}):p;});});
-                    setShowStatusEdit(false);
-                  }} style={{display:'flex',alignItems:'center',gap:'12px',padding:'10px',borderRadius:'8px',cursor:'pointer',border:'1px solid '+item.c+'30',marginBottom:'6px',background:item.c+'10'}}>
-                    <div style={{width:'10px',height:'10px',borderRadius:'50%',background:item.c,flexShrink:0}}/>
-                    <span style={{color:item.c,fontWeight:700,fontSize:'14px'}}>{item.l}</span>
-                  </div>
-                );})}
-                <button className="sbtn" style={{width:'100%',marginTop:'4px'}} onClick={()=>setShowStatusEdit(false)}>Cancelar</button>
-              </div>
-            </div>}
-
-            {showDesfecho&&<div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.75)',zIndex:200,display:'flex',alignItems:'center',justifyContent:'center'}} onClick={()=>setShowDesfecho(false)}>
-              <div style={{background:'#0f172a',border:'1px solid #1e293b',borderRadius:'12px',padding:'20px',width:'260px'}} onClick={e=>e.stopPropagation()}>
-                <div style={{fontSize:'11px',color:'#64748b',marginBottom:'14px',letterSpacing:'0.1em'}}>REGISTRAR DESFECHO</div>
-                {[{k:'alta',l:'Alta Medica',c:'#22c55e'},{k:'transferencia',l:'Transferencia',c:'#f59e0b'},{k:'obito',l:'Obito',c:'#94a3b8'}].map(function(item){return(
-                  <div key={item.k} onClick={async function(){
-                    var now=new Date().toISOString();
-                    await db.from('pacientes').update({desfecho:item.k,desfecho_data:now}).eq('id',sel.id);
-                    setSel(function(p){return Object.assign({},p,{desfecho:item.k,desfecho_data:now});});
-                    setPatients(function(prev){return prev.map(function(p){return p.id===sel.id?Object.assign({},p,{desfecho:item.k}):p;});});
-                    setShowDesfecho(false);
-                  }} style={{display:'flex',alignItems:'center',gap:'12px',padding:'12px',borderRadius:'8px',cursor:'pointer',border:'1px solid '+item.c+'30',marginBottom:'8px',background:item.c+'10'}}>
-                    <div style={{width:'10px',height:'10px',borderRadius:'50%',background:item.c,flexShrink:0}}/>
-                    <span style={{color:item.c,fontWeight:700,fontSize:'14px'}}>{item.l}</span>
-                  </div>
-                );})}
-                <button className="sbtn" style={{width:'100%',marginTop:'4px'}} onClick={()=>setShowDesfecho(false)}>Cancelar</button>
-              </div>
-            </div>}
+                {!editPat&&sel.desfecho&&<button onClick={function(){setShowReabrirDesfecho(true);}} style={{background:'transparent',border:'1px solid #1e293b',color:'#64748b',fontSize:'10px',padding:'4px 8px',borderRadius:'4px',cursor:'pointer',fontFamily:'monospace'}}>Reabrir</button>}
               </div>
             </div>
             )}
@@ -1443,7 +1476,7 @@ function App(){
                 </button>
                 <input ref={fileInputRef} type="file" accept="image/*,application/pdf" multiple onChange={function(e){handleFiles(e.target.files);}} style={{display:'none'}}/>
               </div>
-              <textarea value={caseText} onChange={e=>setCaseText(e.target.value)} placeholder="Digite ou dite o caso pelo microfone do teclado..." className="inp" style={{minHeight:'100px',resize:'vertical',lineHeight:'1.6',padding:'9px'}}/>
+              <textarea value={caseText} onChange={e=>setCaseText(e.target.value.slice(0,MAX_CASE_CHARS))} maxLength={MAX_CASE_CHARS} placeholder="Digite ou dite o caso pelo microfone do teclado..." className="inp" style={{minHeight:'100px',resize:'vertical',lineHeight:'1.6',padding:'9px'}}/>
               {attachments.length>0&&<div style={{marginTop:'10px'}}>
                 <div style={{fontSize:'9px',color:'#475569',letterSpacing:'0.1em',marginBottom:'6px'}}>ANEXOS ({attachments.length})</div>
                 <div style={{display:'grid',gridTemplateColumns:isMobile?'1fr':'repeat(auto-fill,minmax(180px,1fr))',gap:'6px'}}>
@@ -1480,9 +1513,9 @@ function App(){
                   </button>
                   {isRec&&<span style={{fontSize:'10px',color:'#ef4444'}}>● Gravando...</span>}
                   {micErr&&<span style={{fontSize:'10px',color:'#f59e0b'}}>{micErr}</span>}
-                  {!isRec&&!micErr&&<span style={{fontSize:'10px',color:'#334155'}}>{caseText.length} chars{attachments.length>0?' + '+attachments.length+' anexo'+(attachments.length>1?'s':''):''}</span>}
+                  {!isRec&&!micErr&&<span style={{fontSize:'10px',color:getCharColor(caseText.length),fontWeight:caseText.length>=2000?700:400}}>{caseText.length}/{MAX_CASE_CHARS} chars{attachments.length>0?' + '+attachments.length+' anexo'+(attachments.length>1?'s':''):''}{caseText.length>=MAX_CASE_CHARS?' (LIMITE)':caseText.length>=2000?' (proximo do limite)':''}</span>}
                 </div>
-                <button className="btn2" onClick={analyze} disabled={loading||(caseText.trim().length<10&&attachments.length===0)} style={{opacity:loading||(caseText.trim().length<10&&attachments.length===0)?0.4:1}}>{loading?'Analisando...':(attachments.length>0?'Analisar com exames':'Analisar caso')}</button>
+                <button className="btn2" onClick={analyze} disabled={loading||(caseText.trim().length<10&&attachments.length===0)||caseText.length>=MAX_CASE_CHARS} style={{opacity:loading||(caseText.trim().length<10&&attachments.length===0)||caseText.length>=MAX_CASE_CHARS?0.4:1}}>{loading?'Analisando...':(attachments.length>0?'Analisar com exames':'Analisar caso')}</button>
               </div>
             </div>
             {err&&<div style={{background:'#450a0a',border:'1px solid #ef444460',borderRadius:'6px',padding:'10px 14px',marginBottom:'10px',fontSize:'11px',color:'#fda4af',wordBreak:'break-all'}}>ERRO: {err}</div>}
@@ -1573,6 +1606,72 @@ function App(){
         </div>
       </div>
       {/* ============== CONSULTOR CLINICO FLUTUANTE ============== */}
+      {/* MODAL CONFIRMACAO REABRIR DESFECHO */}
+      {showReabrirDesfecho&&sel&&sel.desfecho&&<div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.75)',zIndex:300,display:'flex',alignItems:'center',justifyContent:'center',padding:'20px'}} onClick={function(){if(!reabrirLoading)setShowReabrirDesfecho(false);}}>
+        <div style={{background:'#0f172a',border:'1px solid #1e293b',borderRadius:'12px',padding:'24px',maxWidth:'420px',width:'100%'}} onClick={function(e){e.stopPropagation();}}>
+          <div style={{display:'flex',alignItems:'center',gap:'12px',marginBottom:'14px'}}>
+            <div style={{width:'40px',height:'40px',background:'rgba(245,158,11,0.15)',borderRadius:'8px',display:'flex',alignItems:'center',justifyContent:'center',fontSize:'20px'}}>⚠</div>
+            <div>
+              <div style={{fontSize:'14px',fontWeight:700,color:'#f1f5f9'}}>Reabrir desfecho?</div>
+              <div style={{fontSize:'10px',color:'#64748b',marginTop:'2px',letterSpacing:'0.05em'}}>{sel.nome}</div>
+            </div>
+          </div>
+          <div style={{background:'#020617',border:'1px solid #1e293b',borderRadius:'8px',padding:'12px 14px',marginBottom:'16px',fontSize:'12px',color:'#cbd5e1',lineHeight:'1.6'}}>
+            Esta acao vai:
+            <ul style={{margin:'8px 0 0 18px',padding:0,color:'#94a3b8'}}>
+              <li style={{marginBottom:'4px'}}>Remover o desfecho de <strong style={{color:'#f1f5f9'}}>{sel.desfecho==='alta'?'Alta':sel.desfecho==='transferencia'?'Transferencia':'Obito'}</strong></li>
+              <li style={{marginBottom:'4px'}}>Trazer o paciente de volta para "Ativos"</li>
+              <li>Manter o sumario de internacao (se ja gerado)</li>
+            </ul>
+          </div>
+          <div style={{display:'flex',gap:'8px',justifyContent:'flex-end'}}>
+            <button className="sbtn" onClick={function(){setShowReabrirDesfecho(false);}} disabled={reabrirLoading} style={{padding:'8px 16px'}}>Cancelar</button>
+            <button onClick={reabrirDesfecho} disabled={reabrirLoading} style={{background:'#f59e0b',color:'#1c1000',border:'none',padding:'8px 16px',borderRadius:'6px',fontSize:'12px',fontWeight:700,cursor:reabrirLoading?'not-allowed':'pointer',fontFamily:'monospace',opacity:reabrirLoading?0.6:1}}>
+              {reabrirLoading?'Reabrindo...':'Sim, reabrir'}
+            </button>
+          </div>
+        </div>
+      </div>}
+
+      {/* MODAL STATUS CLINICO */}
+      {showStatusEdit&&sel&&<div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.75)',zIndex:300,display:'flex',alignItems:'center',justifyContent:'center',padding:'20px'}} onClick={()=>setShowStatusEdit(false)}>
+        <div style={{background:'#0f172a',border:'1px solid #1e293b',borderRadius:'12px',padding:'20px',maxWidth:'320px',width:'100%'}} onClick={function(e){e.stopPropagation();}}>
+          <div style={{fontSize:'11px',color:'#64748b',marginBottom:'14px',letterSpacing:'0.1em'}}>STATUS CLINICO</div>
+          {[{k:'estavel',l:'Estavel',c:'#22c55e'},{k:'atencao',l:'Atencao',c:'#f59e0b'},{k:'grave',l:'Grave',c:'#ef4444'},{k:'critico',l:'Critico',c:'#b91c1c'}].map(function(item){return(
+            <div key={item.k} onClick={async function(){
+              await db.from('pacientes').update({status_clinico:item.k}).eq('id',sel.id);
+              setSel(function(p){return Object.assign({},p,{status_clinico:item.k});});
+              setPatients(function(prev){return prev.map(function(p){return p.id===sel.id?Object.assign({},p,{status_clinico:item.k}):p;});});
+              setShowStatusEdit(false);
+            }} style={{display:'flex',alignItems:'center',gap:'12px',padding:'12px',borderRadius:'8px',cursor:'pointer',border:'1px solid '+item.c+'30',marginBottom:'6px',background:item.c+'10'}}>
+              <div style={{width:'10px',height:'10px',borderRadius:'50%',background:item.c,flexShrink:0}}/>
+              <span style={{color:item.c,fontWeight:700,fontSize:'14px'}}>{item.l}</span>
+            </div>
+          );})}
+          <button className="sbtn" style={{width:'100%',marginTop:'4px',padding:'10px'}} onClick={()=>setShowStatusEdit(false)}>Cancelar</button>
+        </div>
+      </div>}
+
+      {/* MODAL REGISTRAR DESFECHO */}
+      {showDesfecho&&sel&&<div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.75)',zIndex:300,display:'flex',alignItems:'center',justifyContent:'center',padding:'20px'}} onClick={()=>setShowDesfecho(false)}>
+        <div style={{background:'#0f172a',border:'1px solid #1e293b',borderRadius:'12px',padding:'20px',maxWidth:'320px',width:'100%'}} onClick={e=>e.stopPropagation()}>
+          <div style={{fontSize:'11px',color:'#64748b',marginBottom:'14px',letterSpacing:'0.1em'}}>REGISTRAR DESFECHO</div>
+          {[{k:'alta',l:'Alta Medica',c:'#22c55e'},{k:'transferencia',l:'Transferencia',c:'#f59e0b'},{k:'obito',l:'Obito',c:'#94a3b8'}].map(function(item){return(
+            <div key={item.k} onClick={async function(){
+              var now=new Date().toISOString();
+              await db.from('pacientes').update({desfecho:item.k,desfecho_data:now}).eq('id',sel.id);
+              setSel(function(p){return Object.assign({},p,{desfecho:item.k,desfecho_data:now});});
+              setPatients(function(prev){return prev.map(function(p){return p.id===sel.id?Object.assign({},p,{desfecho:item.k,desfecho_data:now}):p;});});
+              setShowDesfecho(false);
+            }} style={{display:'flex',alignItems:'center',gap:'12px',padding:'14px',borderRadius:'8px',cursor:'pointer',border:'1px solid '+item.c+'30',marginBottom:'8px',background:item.c+'10'}}>
+              <div style={{width:'10px',height:'10px',borderRadius:'50%',background:item.c,flexShrink:0}}/>
+              <span style={{color:item.c,fontWeight:700,fontSize:'14px'}}>{item.l}</span>
+            </div>
+          );})}
+          <button className="sbtn" style={{width:'100%',marginTop:'4px',padding:'10px'}} onClick={()=>setShowDesfecho(false)}>Cancelar</button>
+        </div>
+      </div>}
+
       {!consultOpen&&<button onClick={function(){setConsultOpen(true);}} title="Consultor clinico" style={{position:'fixed',bottom:'20px',right:'20px',width:'52px',height:'52px',borderRadius:'50%',background:'linear-gradient(135deg,#1D9E75,#0d9488)',border:'none',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',boxShadow:'0 4px 12px rgba(29,158,117,0.4)',zIndex:200}}>
         <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
       </button>}
