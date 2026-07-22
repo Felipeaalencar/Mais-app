@@ -632,6 +632,176 @@ function PinScreen({onUnlock}){
     </div>
   );
 }
+// ============ SAPS 3 (engine + config) ============
+// Tabela de pontos: MDCalc (Moreno 2005). Equação: GLOBAL (validada, realista).
+// PENDENTE validação final da Dra. Aline.
+var SAPS3_OFFSET=16;
+function saps3Mortalidade(score){
+  var logit=-32.6659+Math.log(score+20.5958)*7.3068;
+  return (Math.exp(logit)/(1+Math.exp(logit)))*100;
+}
+// Config das 20 variáveis, agrupadas em 3 blocos.
+// tipo 'num' = campo numérico com função de pontos; 'sel' = seleção com opções {label,pts}
+var SAPS3_VARS=[
+  // BLOCO I
+  {b:1,k:'idade',l:'Idade (anos)',tipo:'num',pts:function(v){return v<40?0:v<60?5:v<70?9:v<75?13:v<80?15:18;}},
+  {b:1,k:'los',l:'Dias internado antes da UTI',tipo:'num',pts:function(v){return v<14?0:v<28?6:7;}},
+  {b:1,k:'local',l:'Local antes da UTI',tipo:'sel',opts:[{v:'enf',l:'Enfermaria',p:0},{v:'ps',l:'Emergencia/PS',p:5},{v:'uti',l:'Outra UTI',p:7},{v:'outra',l:'Outra enfermaria',p:8}]},
+  {b:1,k:'vaso',l:'Drogas vasoativas antes UTI',tipo:'sel',opts:[{v:'nao',l:'Nao',p:0},{v:'sim',l:'Sim',p:3}]},
+  {b:1,k:'comorb',l:'Comorbidades',tipo:'multi',opts:[{v:'quimio',l:'Quimio/imunossup.',p:3},{v:'icc',l:'ICC (NYHA IV)',p:6},{v:'hemato',l:'Cancer hematologico',p:6},{v:'cirrose',l:'Cirrose',p:8},{v:'aids',l:'AIDS',p:8},{v:'meta',l:'Cancer metastatico',p:11}]},
+  // BLOCO II
+  {b:2,k:'planej',l:'Admissao planejada?',tipo:'sel',opts:[{v:'sim',l:'Planejada',p:0},{v:'nao',l:'Nao planejada',p:3}]},
+  {b:2,k:'cirurgia',l:'Status cirurgico',tipo:'sel',opts:[{v:'elet',l:'Cirurgia eletiva',p:0},{v:'sem',l:'Sem cirurgia',p:5},{v:'emerg',l:'Cirurgia emergencia',p:6}]},
+  {b:2,k:'infec',l:'Infeccao na admissao',tipo:'sel',opts:[{v:'nen',l:'Nenhuma/outra',p:0},{v:'noso',l:'Nosocomial',p:4},{v:'resp',l:'Respiratoria',p:5}]},
+  {b:2,k:'motivo',l:'Motivo principal admissao',tipo:'sel',opts:[{v:'nen',l:'Outro/nenhum',p:0},{v:'ritmo',l:'CV: disturbio ritmo',p:-5},{v:'convul',l:'Neuro: convulsoes',p:-4},{v:'hipovol',l:'CV: choque hipovolemico',p:3},{v:'septico',l:'CV: choque septico',p:5},{v:'anaf',l:'CV: choque anafil/misto',p:5},{v:'coma',l:'Neuro: coma/agitacao',p:4},{v:'focal',l:'Neuro: deficit focal',p:7},{v:'massa',l:'Neuro: massa intracraniana',p:10},{v:'abdome',l:'Dig: abdome agudo',p:3},{v:'pancr',l:'Dig: pancreatite grave',p:9},{v:'hepat',l:'Hep: falencia hepatica',p:6}]},
+  // BLOCO III (fisiologia / exames)
+  {b:3,k:'glasgow',l:'Glasgow (menor)',tipo:'num',exame:false,pts:function(v){return v>=13?0:v>=7?2:v===6?7:v===5?10:15;}},
+  {b:3,k:'fc',l:'FC max (bpm)',tipo:'num',exame:false,pts:function(v){return v<120?0:v<160?5:7;}},
+  {b:3,k:'pas',l:'PAS min (mmHg)',tipo:'num',exame:false,pts:function(v){return v>=120?0:v>=70?3:v>=40?8:11;}},
+  {b:3,k:'temp',l:'Temperatura max (C)',tipo:'num',exame:false,pts:function(v){return v>=35?0:7;}},
+  {b:3,k:'oxi',l:'Oxigenacao',tipo:'sel',exame:false,opts:[{v:'a',l:'PaO2>=60 sem VM',p:0},{v:'b',l:'PaO2<60 sem VM',p:5},{v:'c',l:'PaO2/FiO2>=100 c/VM',p:7},{v:'d',l:'PaO2/FiO2<100 c/VM',p:11}]},
+  {b:3,k:'creat',l:'Creatinina max (mg/dL)',tipo:'num',exame:true,pts:function(v){return v<1.2?0:v<2?2:v<3.5?7:8;}},
+  {b:3,k:'bili',l:'Bilirrubina max (mg/dL)',tipo:'num',exame:true,pts:function(v){return v<2?0:v<6?4:5;}},
+  {b:3,k:'leuco',l:'Leucocitos max (G/L)',tipo:'num',exame:true,pts:function(v){return v<15?0:2;}},
+  {b:3,k:'plaq',l:'Plaquetas min (G/L)',tipo:'num',exame:true,pts:function(v){return v>=100?0:v>=50?5:v>=20?8:13;}},
+  {b:3,k:'ph',l:'pH min',tipo:'num',exame:true,pts:function(v){return v>7.25?0:3;}},
+];
+// Calcula escore a partir do objeto de dados {k:valor}. Faltante conta 0 (regra oficial).
+function saps3Calc(dados){
+  var total=SAPS3_OFFSET, preenchidos=0;
+  SAPS3_VARS.forEach(function(vr){
+    var val=dados[vr.k];
+    if(val===undefined||val===null||val===''){return;} // falta = 0 pts
+    preenchidos++;
+    if(vr.tipo==='num'){var n=parseFloat(String(val).replace(',','.'));if(!isNaN(n))total+=vr.pts(n);}
+    else if(vr.tipo==='sel'){var o=vr.opts.find(function(x){return x.v===val;});if(o)total+=o.p;}
+    else if(vr.tipo==='multi'){(val||[]).forEach(function(mv){var o=vr.opts.find(function(x){return x.v===mv;});if(o)total+=o.p;});preenchidos--;if((val||[]).length>0)preenchidos++;}
+  });
+  return {score:total,mortalidade:saps3Mortalidade(total),preenchidos:preenchidos,total:SAPS3_VARS.length};
+}
+
+
+function SAPS3Form({paciente,ultimaAnalise,onClose,onSave}){
+  var dadosIniciais=(paciente&&paciente.saps3_dados)||{};
+  var [dados,setDados]=useState(dadosIniciais);
+  var [salvando,setSalvando]=useState(false);
+  var [iaLoading,setIaLoading]=useState(false);
+  // admissao: usa saps3_admissao_em existente ou created_at do paciente
+  var admissaoEm=paciente&&(paciente.saps3_admissao_em||paciente.created_at);
+  var minsAdmissao=admissaoEm?Math.floor((Date.now()-new Date(admissaoEm).getTime())/60000):0;
+  var foraJanela=minsAdmissao>60;
+
+  function setCampo(k,v){setDados(function(p){var n=Object.assign({},p);n[k]=v;return n;});}
+  function toggleMulti(k,mv){setDados(function(p){var arr=(p[k]||[]).slice();var i=arr.indexOf(mv);if(i>=0)arr.splice(i,1);else arr.push(mv);var n=Object.assign({},p);n[k]=arr;return n;});}
+
+  var calc=saps3Calc(dados);
+  var completo=calc.preenchidos>=SAPS3_VARS.length;
+  var status=calc.preenchidos===0?'pendente':completo?'completo':'parcial';
+  var statusCor={pendente:'#9A9A97',parcial:'#C98A00',completo:'#1E9E63'}[status];
+  var statusBg={pendente:'#EDEDEA',parcial:'#FBF2DC',completo:'#E7F5EE'}[status];
+
+  // pré-preenchimento via IA a partir da última análise
+  async function preencherIA(){
+    if(!ultimaAnalise||!ultimaAnalise.resultado_json){alert('Sem análise para extrair. Faça uma análise clínica primeiro.');return;}
+    setIaLoading(true);
+    try{
+      var rj=ultimaAnalise.resultado_json;
+      var sv=(rj.paciente&&rj.paciente.sinais_vitais)||{};
+      var novo=Object.assign({},dados);
+      // mapeia sinais vitais diretos
+      if(sv.FC&&novo.fc===undefined)novo.fc=String(parseFloat(sv.FC)||'');
+      if(sv.PAS&&novo.pas===undefined)novo.pas=String(parseFloat(sv.PAS)||'');
+      if(sv.Glasgow&&novo.glasgow===undefined)novo.glasgow=String(parseFloat(sv.Glasgow)||'');
+      if(sv.Temperatura&&novo.temp===undefined)novo.temp=String(parseFloat(sv.Temperatura)||'');
+      if(rj.paciente&&rj.paciente.idade&&novo.idade===undefined){var id=parseInt(rj.paciente.idade);if(!isNaN(id))novo.idade=String(id);}
+      // choque séptico se qSOFA alto ou hipótese menciona sepse
+      var hip=(rj.hipoteses&&rj.hipoteses[0]&&rj.hipoteses[0].nome||'').toLowerCase();
+      if((hip.indexOf('sepse')>=0||hip.indexOf('séptico')>=0||hip.indexOf('septico')>=0)&&novo.motivo===undefined)novo.motivo='septico';
+      setDados(novo);
+    }catch(e){alert('Erro ao extrair: '+e.message);}
+    finally{setIaLoading(false);}
+  }
+
+  async function salvar(){
+    setSalvando(true);
+    try{
+      var payload={
+        saps3_dados:dados,
+        saps3_status:status,
+        saps3_score:calc.score,
+        saps3_mortalidade:Math.round(calc.mortalidade*10)/10
+      };
+      if(!paciente.saps3_score_admissao)payload.saps3_score_admissao=calc.score;
+      if(!paciente.saps3_admissao_em)payload.saps3_admissao_em=new Date(admissaoEm||Date.now()).toISOString();
+      if(completo&&!paciente.saps3_completo_em)payload.saps3_completo_em=new Date().toISOString();
+      await onSave(payload);
+    }finally{setSalvando(false);}
+  }
+
+  function renderCampo(vr){
+    var val=dados[vr.k];
+    var preenchido=vr.tipo==='multi'?(val&&val.length>0):(val!==undefined&&val!==null&&val!=='');
+    var isExame=vr.exame===true;
+    return(<div key={vr.k} style={{marginBottom:'11px'}}>
+      <div style={{fontSize:'11px',color:'#6B6F76',marginBottom:'5px',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+        <span>{vr.l}</span>
+        {preenchido?<span style={{fontSize:'8px',background:'#E7F5EE',color:'#1E9E63',borderRadius:'3px',padding:'1px 6px',fontWeight:700}}>ok</span>
+          :<span style={{fontSize:'8px',background:'#FBF2DC',color:'#C98A00',borderRadius:'3px',padding:'1px 6px',fontWeight:700}}>{isExame?'exame':'falta'}</span>}
+      </div>
+      {vr.tipo==='num'&&<input type="number" value={val||''} onChange={function(e){setCampo(vr.k,e.target.value);}} placeholder={isExame?'aguardando exame (conta 0)':'-'} style={{width:'100%',borderRadius:'7px',padding:'9px 10px',fontSize:'12px',fontFamily:'monospace',border:'1px solid '+(preenchido?'#1E9E63':'#E7E7E4'),background:preenchido?'#E7F5EE':'#F5F5F3',color:'#111'}}/>}
+      {vr.tipo==='sel'&&<select value={val||''} onChange={function(e){setCampo(vr.k,e.target.value);}} style={{width:'100%',borderRadius:'7px',padding:'9px 10px',fontSize:'12px',fontFamily:'monospace',border:'1px solid '+(preenchido?'#1E9E63':'#E7E7E4'),background:preenchido?'#E7F5EE':'#F5F5F3',color:'#111'}}>
+        <option value="">- selecionar -</option>
+        {vr.opts.map(function(o){return(<option key={o.v} value={o.v}>{o.l} ({o.p>=0?'+':''}{o.p})</option>);})}
+      </select>}
+      {vr.tipo==='multi'&&<div style={{display:'flex',flexWrap:'wrap',gap:'5px'}}>
+        {vr.opts.map(function(o){var on=(val||[]).indexOf(o.v)>=0;return(<button key={o.v} onClick={function(){toggleMulti(vr.k,o.v);}} style={{fontSize:'10px',padding:'5px 9px',borderRadius:'6px',cursor:'pointer',fontFamily:'monospace',border:'1px solid '+(on?'#1E9E63':'#E7E7E4'),background:on?'#E7F5EE':'#F5F5F3',color:on?'#1E7A4E':'#6B6F76',fontWeight:on?700:400}}>{o.l} +{o.p}</button>);})}
+      </div>}
+    </div>);
+  }
+
+  var blocos=[{n:1,t:'BLOCO I · CARACTERISTICAS PREVIAS'},{n:2,t:'BLOCO II · CIRCUNSTANCIAS DA ADMISSAO'},{n:3,t:'BLOCO III · FISIOLOGIA (1a HORA)'}];
+
+  return(<div style={{position:'fixed',inset:0,background:'rgba(2,6,23,0.5)',zIndex:400,display:'flex',alignItems:'flex-start',justifyContent:'center',padding:'16px',overflowY:'auto'}} onClick={function(e){if(e.target===e.currentTarget)onClose();}}>
+    <div style={{width:'100%',maxWidth:'480px',background:'#F5F5F3',borderRadius:'14px',overflow:'hidden',marginTop:'8px',marginBottom:'40px'}}>
+      {/* header */}
+      <div style={{background:'#FFFFFF',borderBottom:'1px solid #E7E7E4',padding:'14px 16px',display:'flex',justifyContent:'space-between',alignItems:'center',position:'sticky',top:0,zIndex:2}}>
+        <div><div style={{fontSize:'14px',fontWeight:700,color:'#111'}}>SAPS 3 — Admissao</div><div style={{fontSize:'10px',color:'#9A9A97'}}>{paciente.nome}{paciente.leito?' · '+paciente.leito:''}</div></div>
+        <div style={{display:'flex',gap:'8px',alignItems:'center'}}>
+          <span style={{fontSize:'10px',fontWeight:700,padding:'3px 11px',borderRadius:'999px',background:statusBg,color:statusCor}}>● {status.toUpperCase()}</span>
+          <button onClick={onClose} style={{background:'transparent',border:'none',color:'#9A9A97',fontSize:'20px',cursor:'pointer',lineHeight:1}}>×</button>
+        </div>
+      </div>
+      <div style={{padding:'16px'}}>
+        {/* resultado ao vivo */}
+        <div style={{background:'#111',color:'#fff',borderRadius:'12px',padding:'16px',marginBottom:'12px'}}>
+          <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-end'}}>
+            <div><div style={{fontSize:'34px',fontWeight:700,lineHeight:1,color:completo?'#5FD08A':'#F4C453'}}>{calc.score}</div><div style={{fontSize:'9px',color:'#8f8f8c',marginTop:'4px'}}>SAPS 3{completo?'':' PROVISORIO'}</div></div>
+            <div style={{textAlign:'right'}}><div style={{fontSize:'24px',fontWeight:700,lineHeight:1,color:completo?'#5FD08A':'#F4C453'}}>{calc.mortalidade.toFixed(1)}%</div><div style={{fontSize:'9px',color:'#8f8f8c',marginTop:'4px'}}>MORTALIDADE EST.</div></div>
+          </div>
+          {!completo&&<div style={{background:'rgba(244,196,83,.15)',border:'1px solid rgba(244,196,83,.4)',borderRadius:'7px',padding:'8px 10px',marginTop:'12px',fontSize:'10px',color:'#F4C453',lineHeight:1.5}}>⚠ Provisorio — {SAPS3_VARS.length-calc.preenchidos} campo(s) sem valor contam 0. <b>Tende a aumentar</b> conforme preencher.</div>}
+          <div style={{fontSize:'9px',color:'#6B6F76',marginTop:'10px'}}>{calc.preenchidos}/{SAPS3_VARS.length} campos · admissao ha {minsAdmissao<60?minsAdmissao+' min':Math.floor(minsAdmissao/60)+'h'} {foraJanela?'· ⚠ fora da janela de 1h':'· dentro da janela ✓'}</div>
+        </div>
+        {/* botão IA */}
+        <button onClick={preencherIA} disabled={iaLoading} style={{width:'100%',background:'#E7F5EE',border:'1px solid #A9DcC0',color:'#1E7A4E',padding:'10px',borderRadius:'8px',fontWeight:700,fontSize:'12px',fontFamily:'monospace',marginBottom:'12px',cursor:'pointer'}}>{iaLoading?'Extraindo...':'✨ Preencher com a ultima analise'}</button>
+        {/* blocos */}
+        {blocos.map(function(bl){
+          return(<div key={bl.n} style={{background:'#FFFFFF',border:'1px solid #E7E7E4',borderRadius:'12px',padding:'14px',marginBottom:'12px'}}>
+            <div style={{fontSize:'10px',letterSpacing:'0.1em',color:'#374151',fontWeight:700,marginBottom:'12px'}}>{bl.t}</div>
+            {SAPS3_VARS.filter(function(v){return v.b===bl.n;}).map(renderCampo)}
+          </div>);
+        })}
+        {/* ações */}
+        <div style={{display:'flex',gap:'8px'}}>
+          <button onClick={onClose} style={{flex:1,background:'#F5F5F3',border:'1px solid #E7E7E4',color:'#6B6F76',padding:'12px',borderRadius:'8px',fontWeight:700,fontSize:'12px',fontFamily:'monospace',cursor:'pointer'}}>Cancelar</button>
+          <button onClick={salvar} disabled={salvando} style={{flex:2,background:'#1D9E75',border:'none',color:'#fff',padding:'12px',borderRadius:'8px',fontWeight:700,fontSize:'12px',fontFamily:'monospace',cursor:'pointer',opacity:salvando?0.6:1}}>{salvando?'Salvando...':'Salvar SAPS 3 ('+calc.score+')'}</button>
+        </div>
+        <div style={{fontSize:'9px',color:'#9A9A97',textAlign:'center',marginTop:'10px',lineHeight:1.5}}>Equacao global validada · nao substitui julgamento clinico · pontos a validar pela equipe</div>
+      </div>
+    </div>
+  </div>);
+}
+
+
 function App(){
   const isMobile=useIsMobile();
   const [showMobileNav,setShowMobileNav]=useState(false);
@@ -681,6 +851,19 @@ function App(){
   const [editN,setEditN]=useState('');
   const [editL,setEditL]=useState('');
   const [editS,setEditS]=useState('');
+  const [showSaps3,setShowSaps3]=useState(false);
+
+  async function saveSaps3(payload){
+    if(!sel)return;
+    const{data,error}=await db.from('pacientes').update(payload).eq('id',sel.id).select().single();
+    if(!error&&data){
+      setSel(data);
+      setPatients(function(prev){return prev.map(function(p){return p.id===sel.id?data:p;});});
+      setShowSaps3(false);
+    }else if(error){
+      alert('Erro ao salvar SAPS 3: '+error.message);
+    }
+  }
 
   useEffect(()=>{loadP()},[]);
   useEffect(()=>{if(sel)loadA(sel.id)},[sel]);
@@ -1452,6 +1635,7 @@ function App(){
                   <button className="sbtn" onClick={()=>{setEditN(sel.nome);setEditL(sel.leito||'');setEditS(sel.setor||'');setEditPat(true)}} style={{padding:'11px',fontSize:'12px'}}>Editar</button>
                   {patA.length>=2&&<button className="sbtn" onClick={()=>setScreen('evolution')} style={{padding:'11px',fontSize:'12px'}}>Evolucao</button>}
                   {patA.length>0&&<button className="sbtn" style={{color:'#374151',borderColor:'#374151',padding:'11px',fontSize:'12px'}} onClick={()=>setScreen('dashboard')}>Dashboard</button>}
+                  <button className="sbtn" style={{color:sel.saps3_status==='completo'?'#1E9E63':sel.saps3_status==='parcial'?'#C98A00':'#374151',borderColor:sel.saps3_status==='completo'?'#1E9E63':sel.saps3_status==='parcial'?'#C98A00':'#E7E7E4',padding:'11px',fontSize:'12px'}} onClick={()=>setShowSaps3(true)}>{sel.saps3_score?'SAPS 3: '+sel.saps3_score:'SAPS 3'}</button>
                   {!sel.desfecho&&<button className="sbtn" style={{color:'#9A9A97',padding:'11px',fontSize:'12px'}} onClick={()=>setShowDesfecho(true)}>Desfecho</button>}
                 </div>
               </div>
@@ -1481,6 +1665,7 @@ function App(){
                 {!editPat&&<button className="sbtn" onClick={()=>{setEditN(sel.nome);setEditL(sel.leito||'');setEditS(sel.setor||'');setEditPat(true)}}>Editar</button>}
                 {patA.length>=2&&!editPat&&<button className="sbtn" onClick={()=>setScreen('evolution')}>Evolucao</button>}
                 {patA.length>0&&!editPat&&<button className="sbtn" style={{color:'#374151',borderColor:'#374151'}} onClick={()=>setScreen('dashboard')}>Dashboard</button>}
+                {!editPat&&<button className="sbtn" style={{color:sel.saps3_status==='completo'?'#1E9E63':sel.saps3_status==='parcial'?'#C98A00':'#374151',borderColor:sel.saps3_status==='completo'?'#1E9E63':sel.saps3_status==='parcial'?'#C98A00':'#E7E7E4'}} onClick={()=>setShowSaps3(true)}>{sel.saps3_score?'SAPS 3: '+sel.saps3_score:'SAPS 3'}</button>}
                 {!editPat&&<button className="btn" onClick={()=>{setResult(null);setCaseText('');setSaved('');setScreen('new')}}>+ Nova analise</button>}
                 {!editPat&&!sel.desfecho&&<button className="sbtn" style={{color:'#9A9A97'}} onClick={()=>setShowDesfecho(true)}>Desfecho</button>}
                 {!editPat&&sel.desfecho&&<span style={{fontSize:'10px',fontWeight:700,padding:'3px 8px',borderRadius:'5px',color:sel.desfecho==='alta'?'#22c55e':sel.desfecho==='transferencia'?'#f59e0b':'#6B6F76',background:sel.desfecho==='alta'?'#E7F5EE':sel.desfecho==='transferencia'?'#FBF2DC':'#E7E7E4'}}>{sel.desfecho==='alta'?'Alta':sel.desfecho==='transferencia'?'Transferido':'Obito'}</span>}
@@ -1716,6 +1901,8 @@ function App(){
       </div>}
 
       {/* MODAL REGISTRAR DESFECHO */}
+      {showSaps3&&sel&&<SAPS3Form paciente={sel} ultimaAnalise={patA[0]} onClose={function(){setShowSaps3(false);}} onSave={saveSaps3}/>}
+
       {showDesfecho&&sel&&<div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.75)',zIndex:300,display:'flex',alignItems:'center',justifyContent:'center',padding:'20px'}} onClick={()=>setShowDesfecho(false)}>
         <div style={{background:'#FFFFFF',border:'1px solid #E7E7E4',borderRadius:'12px',padding:'20px',maxWidth:'320px',width:'100%'}} onClick={e=>e.stopPropagation()}>
           <div style={{fontSize:'11px',color:'#9A9A97',marginBottom:'14px',letterSpacing:'0.1em'}}>REGISTRAR DESFECHO</div>
