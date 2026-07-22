@@ -925,8 +925,21 @@ function App(){
     }
   }
 
-  useEffect(()=>{loadP()},[]);
-  useEffect(()=>{if(sel)loadA(sel.id)},[sel]);
+  async function deletePaciente(){
+    if(!sel)return;
+    var ehGestor=perfil&&perfil.role==='gestor';
+    if(!ehGestor){alert('Apenas o gestor pode excluir pacientes.');return;}
+    // confirmação dupla
+    var c1=window.confirm('Excluir o paciente "'+sel.nome+'"?\n\nISSO APAGA TAMBEM todas as analises, SAPS 3 e balanco hidrico dele. Nao da pra desfazer.');
+    if(!c1)return;
+    var c2=window.confirm('Tem CERTEZA? Esta acao e permanente e irreversivel.\n\nConfirma excluir "'+sel.nome+'" e todos os dados dele?');
+    if(!c2)return;
+    var{error}=await db.from('pacientes').delete().eq('id',sel.id);
+    if(error){alert('Erro ao excluir: '+error.message);return;}
+    setPatients(function(prev){return prev.filter(function(p){return p.id!==sel.id;});});
+    setSel(null);
+    setScreen('home');
+  }
 
   // Autenticação: verifica sessão existente ao abrir
   useEffect(function(){
@@ -1736,6 +1749,7 @@ function App(){
                   {patA.length>0&&<button className="sbtn" style={{color:'#374151',borderColor:'#374151',padding:'11px',fontSize:'12px'}} onClick={()=>setScreen('dashboard')}>Dashboard</button>}
                   <button className="sbtn" style={{color:sel.saps3_status==='completo'?'#1E9E63':sel.saps3_status==='parcial'?'#C98A00':'#374151',borderColor:sel.saps3_status==='completo'?'#1E9E63':sel.saps3_status==='parcial'?'#C98A00':'#E7E7E4',padding:'11px',fontSize:'12px'}} onClick={()=>setShowSaps3(true)}>{sel.saps3_score?'SAPS 3: '+sel.saps3_score:'SAPS 3'}</button>
                   {!sel.desfecho&&<button className="sbtn" style={{color:'#9A9A97',padding:'11px',fontSize:'12px'}} onClick={()=>setShowDesfecho(true)}>Desfecho</button>}
+                  {perfil&&perfil.role==='gestor'&&<button className="sbtn" style={{color:'#D22B2B',borderColor:'#F3C7C7',padding:'11px',fontSize:'12px'}} onClick={deletePaciente}>Excluir</button>}
                 </div>
               </div>
             ):(
@@ -1767,6 +1781,7 @@ function App(){
                 {!editPat&&<button className="sbtn" style={{color:sel.saps3_status==='completo'?'#1E9E63':sel.saps3_status==='parcial'?'#C98A00':'#374151',borderColor:sel.saps3_status==='completo'?'#1E9E63':sel.saps3_status==='parcial'?'#C98A00':'#E7E7E4'}} onClick={()=>setShowSaps3(true)}>{sel.saps3_score?'SAPS 3: '+sel.saps3_score:'SAPS 3'}</button>}
                 {!editPat&&<button className="btn" onClick={()=>{setResult(null);setCaseText('');setSaved('');setScreen('new')}}>+ Nova analise</button>}
                 {!editPat&&!sel.desfecho&&<button className="sbtn" style={{color:'#9A9A97'}} onClick={()=>setShowDesfecho(true)}>Desfecho</button>}
+                {!editPat&&perfil&&perfil.role==='gestor'&&<button className="sbtn" style={{color:'#D22B2B',borderColor:'#F3C7C7'}} onClick={deletePaciente}>Excluir</button>}
                 {!editPat&&sel.desfecho&&<span style={{fontSize:'10px',fontWeight:700,padding:'3px 8px',borderRadius:'5px',color:sel.desfecho==='alta'?'#22c55e':sel.desfecho==='transferencia'?'#f59e0b':'#6B6F76',background:sel.desfecho==='alta'?'#E7F5EE':sel.desfecho==='transferencia'?'#FBF2DC':'#E7E7E4'}}>{sel.desfecho==='alta'?'Alta':sel.desfecho==='transferencia'?'Transferido':'Obito'}</span>}
                 {!editPat&&sel.desfecho&&<button onClick={function(){setShowReabrirDesfecho(true);}} style={{background:'transparent',border:'1px solid #E7E7E4',color:'#9A9A97',fontSize:'10px',padding:'4px 8px',borderRadius:'4px',cursor:'pointer',fontFamily:'monospace'}}>Reabrir</button>}
               </div>
