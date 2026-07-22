@@ -2,7 +2,7 @@
 <html lang="pt-BR">
 <head>
 <meta charset="UTF-8"/>
-<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"/>
 <title>MAIS — inteligencia clinica.</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
@@ -1089,7 +1089,7 @@ function App(){
     recRef.current=r;
     try{r.start();}catch(err){setMicErr('Erro ao iniciar: '+err.message);}
   }
-  async function createP(){if(!npN.trim())return;const{data,error}=await db.from('pacientes').insert({nome:npN.trim(),leito:npL.trim(),setor:npS.trim()}).select().single();if(!error){setPatients(prev=>[data,...prev]);setShowNP(false);setNpN('');setNpL('');setNpS('');setSel(data);setScreen('new');setResult(null);setCaseText('')}}
+  async function createP(){if(!npN.trim())return;const{data,error}=await db.from('pacientes').insert({nome:npN.trim(),leito:npL.trim(),setor:npS.trim(),medico_id:authUser?authUser.id:null}).select().single();if(!error){setPatients(prev=>[data,...prev]);setShowNP(false);setNpN('');setNpL('');setNpS('');setSel(data);setScreen('new');setResult(null);setCaseText('')}}
 
   async function handleFiles(filesList){
     setAttachErr('');
