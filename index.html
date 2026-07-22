@@ -863,6 +863,38 @@ function LoginScreen({onLogin}){
 }
 
 
+function WelcomeModal({onClose}){
+  return(
+    <div style={{position:'fixed',inset:0,background:'rgba(17,17,17,0.55)',zIndex:500,display:'flex',alignItems:'center',justifyContent:'center',padding:'16px',overflowY:'auto'}} onClick={function(e){if(e.target===e.currentTarget)onClose();}}>
+      <div style={{width:'100%',maxWidth:'440px',background:'#fff',borderRadius:'18px',padding:'32px',boxShadow:'0 20px 50px rgba(0,0,0,0.25)',margin:'20px 0'}}>
+        <div style={{textAlign:'center',marginBottom:'16px'}}>
+          <svg width="50" height="50" viewBox="0 0 90 90"><rect width="90" height="90" rx="18" fill="#F5F5F3" stroke="#E7E7E4"/><path d="M 12,45 L 22,45 L 28,28 L 40,64 L 52,28 L 62,45 L 70,45 L 74,38 L 78,22 L 84,68" fill="none" stroke="#1D9E75" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round"/><circle cx="78" cy="22" r="4" fill="#EF9F27"/></svg>
+        </div>
+        <h2 style={{fontSize:'21px',color:'#111',marginBottom:'12px',textAlign:'center',fontWeight:700}}>Bem-vindo ao <span style={{color:'#1D9E75'}}>MAIS</span> 🩺</h2>
+        <div style={{fontSize:'13px',color:'#6B6F76',lineHeight:1.6,marginBottom:'18px',textAlign:'center'}}>Um assistente para o seu dia a dia na UTI. Ele organiza seus pacientes e te ajuda a pensar — <b>sem nunca decidir por você</b>.</div>
+
+        <div style={{display:'flex',gap:'11px',alignItems:'flex-start',marginBottom:'12px',padding:'11px 13px',background:'#F5F5F3',borderRadius:'10px'}}>
+          <div style={{fontSize:'17px'}}>📋</div>
+          <div><b style={{fontSize:'12px',color:'#111',display:'block',marginBottom:'2px'}}>Acompanhe seus pacientes</b><span style={{fontSize:'11px',color:'#6B6F76',lineHeight:1.45}}>Cadastre e veja o estado de cada um num só lugar, com alertas de gravidade.</span></div>
+        </div>
+        <div style={{display:'flex',gap:'11px',alignItems:'flex-start',marginBottom:'12px',padding:'11px 13px',background:'#F5F5F3',borderRadius:'10px'}}>
+          <div style={{fontSize:'17px'}}>🧠</div>
+          <div><b style={{fontSize:'12px',color:'#111',display:'block',marginBottom:'2px'}}>Apoio à decisão</b><span style={{fontSize:'11px',color:'#6B6F76',lineHeight:1.45}}>Descreva o caso e receba hipóteses e pontos de atenção para considerar.</span></div>
+        </div>
+        <div style={{display:'flex',gap:'11px',alignItems:'flex-start',marginBottom:'12px',padding:'11px 13px',background:'#F5F5F3',borderRadius:'10px'}}>
+          <div style={{fontSize:'17px'}}>📊</div>
+          <div><b style={{fontSize:'12px',color:'#111',display:'block',marginBottom:'2px'}}>Escores automáticos</b><span style={{fontSize:'11px',color:'#6B6F76',lineHeight:1.45}}>SAPS 3 e outros cálculos de gravidade, calculados para você.</span></div>
+        </div>
+
+        <div style={{background:'#FBF2DC',border:'1px solid #F0D9A0',borderRadius:'9px',padding:'10px 12px',fontSize:'11px',color:'#8A6D1F',lineHeight:1.5,marginBottom:'18px'}}>⚠️ O MAIS é uma ferramenta de apoio. <b>A decisão clínica é sempre sua.</b> Nada aqui substitui seu julgamento médico.</div>
+
+        <button onClick={onClose} style={{width:'100%',background:'#1D9E75',border:'none',color:'#fff',padding:'13px',borderRadius:'9px',fontWeight:700,fontSize:'13px',fontFamily:'monospace',cursor:'pointer'}}>Entendi, vamos começar</button>
+      </div>
+    </div>
+  );
+}
+
+
 function App(){
   const isMobile=useIsMobile();
   const [showMobileNav,setShowMobileNav]=useState(false);
@@ -916,6 +948,7 @@ function App(){
   const [editL,setEditL]=useState('');
   const [editS,setEditS]=useState('');
   const [showSaps3,setShowSaps3]=useState(false);
+  const [showWelcome,setShowWelcome]=useState(false);
 
   async function saveSaps3(payload){
     if(!sel)return;
@@ -1272,6 +1305,7 @@ function App(){
         </button>
         <div style={{marginLeft:'auto',display:'flex',gap:'8px',alignItems:'center'}}>
           {perfil&&<span style={{fontSize:'10px',color:'#9A9A97'}}>{perfil.nome||perfil.email}{perfil.role==='gestor'?' · gestor':''}</span>}
+          <button onClick={function(){setShowWelcome(true);}} style={{background:'#E7F5EE',border:'1px solid #A9DCC0',color:'#1E7A4E',fontSize:'10px',padding:'5px 10px',borderRadius:'6px',cursor:'pointer',fontFamily:'monospace',fontWeight:700}}>📘 Tutorial</button>
           <button onClick={sair} style={{background:'transparent',border:'1px solid #E7E7E4',color:'#9A9A97',fontSize:'10px',padding:'5px 10px',borderRadius:'6px',cursor:'pointer',fontFamily:'monospace'}}>Sair</button>
         </div>
       </div>
@@ -2004,6 +2038,7 @@ function App(){
       </div>}
 
       {/* MODAL REGISTRAR DESFECHO */}
+      {showWelcome&&<WelcomeModal onClose={function(){setShowWelcome(false);}}/>}
       {showSaps3&&sel&&<SAPS3Form paciente={sel} ultimaAnalise={patA[0]} onClose={function(){setShowSaps3(false);}} onSave={saveSaps3}/>}
 
       {showDesfecho&&sel&&<div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.75)',zIndex:300,display:'flex',alignItems:'center',justifyContent:'center',padding:'20px'}} onClick={()=>setShowDesfecho(false)}>
