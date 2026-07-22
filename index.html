@@ -1408,11 +1408,14 @@ function App(){
               var lastSparkX=2+6*8;
               var lastSparkY=2+(16*(1-todayN/maxSpark));
               // TODO login: substituir por nome do medico logado
-              var medicoNome='Dra. Aline';
+              var medicoNome=(perfil&&perfil.nome)?perfil.nome:'Doutor(a)';
+              var ehGestor=perfil&&perfil.role==='gestor';
+              var saudacao=ehGestor?'Bom trabalho':'Bom plantao';
+              var saudEmoji=ehGestor?'📊':'🩺';
               return(<div>
                 <div style={{background:'#FFFFFF',border:'1px solid #E7E7E4',borderRadius:'14px',padding:'20px 20px 18px',marginBottom:'14px',position:'relative',overflow:'hidden'}}>
                   <div style={{position:'absolute',left:0,top:0,bottom:0,width:'5px',background:'linear-gradient(#1D9E75,#0d9488)'}}/>
-                  <div style={{fontSize:'20px',fontWeight:700,color:'#111111',letterSpacing:'-0.01em'}}>Bom plantao, <span style={{color:'#1D9E75'}}>{medicoNome}</span> <span style={{fontWeight:400}}>🩺</span></div>
+                  <div style={{fontSize:'20px',fontWeight:700,color:'#111111',letterSpacing:'-0.01em'}}>{saudacao}, <span style={{color:'#1D9E75'}}>{medicoNome}</span> <span style={{fontWeight:400}}>{saudEmoji}</span></div>
                   <div style={{fontSize:'11px',color:'#9A9A97',marginTop:'4px'}}>Inteligencia Clinica · UTI · {ativos.length} paciente{ativos.length!==1?'s':''} ativo{ativos.length!==1?'s':''}</div>
                   <div style={{display:'flex',gap:'6px',marginTop:'16px'}}>
                     {[
