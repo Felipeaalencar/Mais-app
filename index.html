@@ -685,7 +685,7 @@ function saps3Calc(dados){
 }
 
 
-function SAPS3Form({paciente,ultimaAnalise,onClose,onSave}){
+function SAPS3Form({paciente,ultimaAnalise,todasAnalises,onClose,onSave}){
   var dadosIniciais=(paciente&&paciente.saps3_dados)||{};
   var [dados,setDados]=useState(dadosIniciais);
   var [salvando,setSalvando]=useState(false);
@@ -706,21 +706,30 @@ function SAPS3Form({paciente,ultimaAnalise,onClose,onSave}){
 
   // pré-preenchimento via IA a partir da última análise
   async function preencherIA(){
-    if(!ultimaAnalise||!ultimaAnalise.resultado_json){alert('Sem análise para extrair. Faça uma análise clínica primeiro.');return;}
+    // usa todas as análises se disponível; senão, cai pra última
+    var lista=(todasAnalises&&todasAnalises.length)?todasAnalises:(ultimaAnalise?[ultimaAnalise]:[]);
+    lista=lista.filter(function(a){return a&&a.resultado_json;});
+    if(!lista.length){alert('Sem análise para extrair. Faça uma análise clínica primeiro.');return;}
     setIaLoading(true);
     try{
-      var rj=ultimaAnalise.resultado_json;
-      var sv=(rj.paciente&&rj.paciente.sinais_vitais)||{};
       var novo=Object.assign({},dados);
-      // mapeia sinais vitais diretos
-      if(sv.FC&&novo.fc===undefined)novo.fc=String(parseFloat(sv.FC)||'');
-      if(sv.PAS&&novo.pas===undefined)novo.pas=String(parseFloat(sv.PAS)||'');
-      if(sv.Glasgow&&novo.glasgow===undefined)novo.glasgow=String(parseFloat(sv.Glasgow)||'');
-      if(sv.Temperatura&&novo.temp===undefined)novo.temp=String(parseFloat(sv.Temperatura)||'');
-      if(rj.paciente&&rj.paciente.idade&&novo.idade===undefined){var id=parseInt(rj.paciente.idade);if(!isNaN(id))novo.idade=String(id);}
-      // choque séptico se qSOFA alto ou hipótese menciona sepse
-      var hip=(rj.hipoteses&&rj.hipoteses[0]&&rj.hipoteses[0].nome||'').toLowerCase();
-      if((hip.indexOf('sepse')>=0||hip.indexOf('séptico')>=0||hip.indexOf('septico')>=0)&&novo.motivo===undefined)novo.motivo='septico';
+      // helper: só preenche se ainda estiver vazio (mantém o que já foi digitado)
+      function setSe(campo,valor){
+        if(valor===undefined||valor===null||valor==='')return;
+        if(novo[campo]===undefined||novo[campo]===null||novo[campo]===''){novo[campo]=String(valor);}
+      }
+      // percorre da mais RECENTE pra mais antiga; o primeiro valor achado (mais recente) vence
+      lista.forEach(function(a){
+        var rj=a.resultado_json; if(!rj)return;
+        var sv=(rj.paciente&&rj.paciente.sinais_vitais)||{};
+        if(sv.FC)setSe('fc',parseFloat(sv.FC)||'');
+        if(sv.PAS)setSe('pas',parseFloat(sv.PAS)||'');
+        if(sv.Glasgow)setSe('glasgow',parseFloat(sv.Glasgow)||'');
+        if(sv.Temperatura)setSe('temp',parseFloat(sv.Temperatura)||'');
+        if(rj.paciente&&rj.paciente.idade){var id=parseInt(rj.paciente.idade);if(!isNaN(id))setSe('idade',id);}
+        var hip=(rj.hipoteses&&rj.hipoteses[0]&&rj.hipoteses[0].nome||'').toLowerCase();
+        if((hip.indexOf('sepse')>=0||hip.indexOf('séptico')>=0||hip.indexOf('septico')>=0))setSe('motivo','septico');
+      });
       setDados(novo);
     }catch(e){alert('Erro ao extrair: '+e.message);}
     finally{setIaLoading(false);}
@@ -786,7 +795,7 @@ function SAPS3Form({paciente,ultimaAnalise,onClose,onSave}){
           <div style={{fontSize:'9px',color:'#6B6F76',marginTop:'10px'}}>{calc.preenchidos}/{SAPS3_VARS.length} campos · admissao ha {minsAdmissao<60?minsAdmissao+' min':Math.floor(minsAdmissao/60)+'h'} {foraJanela?'· ⚠ fora da janela de 1h':'· dentro da janela ✓'}</div>
         </div>
         {/* botão IA */}
-        <button onClick={preencherIA} disabled={iaLoading} style={{width:'100%',background:'#E7F5EE',border:'1px solid #A9DcC0',color:'#1E7A4E',padding:'10px',borderRadius:'8px',fontWeight:700,fontSize:'12px',fontFamily:'monospace',marginBottom:'12px',cursor:'pointer'}}>{iaLoading?'Extraindo...':'✨ Preencher com a ultima analise'}</button>
+        <button onClick={preencherIA} disabled={iaLoading} style={{width:'100%',background:'#E7F5EE',border:'1px solid #A9DcC0',color:'#1E7A4E',padding:'10px',borderRadius:'8px',fontWeight:700,fontSize:'12px',fontFamily:'monospace',marginBottom:'12px',cursor:'pointer'}}>{iaLoading?'Extraindo...':'✨ Preencher com as analises'}</button>
         {/* blocos */}
         {blocos.map(function(bl){
           return(<div key={bl.n} style={{background:'#FFFFFF',border:'1px solid #E7E7E4',borderRadius:'12px',padding:'14px',marginBottom:'12px'}}>
@@ -2039,7 +2048,7 @@ function App(){
 
       {/* MODAL REGISTRAR DESFECHO */}
       {showWelcome&&<WelcomeModal onClose={function(){setShowWelcome(false);}}/>}
-      {showSaps3&&sel&&<SAPS3Form paciente={sel} ultimaAnalise={patA[0]} onClose={function(){setShowSaps3(false);}} onSave={saveSaps3}/>}
+      {showSaps3&&sel&&<SAPS3Form paciente={sel} ultimaAnalise={patA[0]} todasAnalises={patA} onClose={function(){setShowSaps3(false);}} onSave={saveSaps3}/>}
 
       {showDesfecho&&sel&&<div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.75)',zIndex:300,display:'flex',alignItems:'center',justifyContent:'center',padding:'20px'}} onClick={()=>setShowDesfecho(false)}>
         <div style={{background:'#FFFFFF',border:'1px solid #E7E7E4',borderRadius:'12px',padding:'20px',maxWidth:'320px',width:'100%'}} onClick={e=>e.stopPropagation()}>
