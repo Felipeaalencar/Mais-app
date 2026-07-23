@@ -904,6 +904,116 @@ function WelcomeModal({onClose}){
 }
 
 
+function ChatClinico({paciente,analises,onClose}){
+  var [msgs,setMsgs]=useState([]);
+  var [input,setInput]=useState('');
+  var [carregando,setCarregando]=useState(true);
+  var [pensando,setPensando]=useState(false);
+  var fimRef=React.useRef(null);
+
+  // carrega histórico ao abrir
+  useEffect(function(){
+    var ativo=true;
+    db.from('conversas').select('*').eq('paciente_id',paciente.id).order('created_at',{ascending:true}).then(function(res){
+      if(!ativo)return;
+      if(res.data)setMsgs(res.data);
+      setCarregando(false);
+    }).catch(function(){setCarregando(false);});
+    return function(){ativo=false;};
+  },[]);
+
+  useEffect(function(){if(fimRef.current)fimRef.current.scrollIntoView({behavior:'smooth'});},[msgs,pensando]);
+
+  // monta o contexto do paciente pra IA (o que ela "já sabe")
+  function montarContexto(){
+    var p=['Voce e um assistente clinico de UTI conversando com o medico sobre um paciente especifico.',
+      'IMPORTANTE: voce e ferramenta de APOIO. Sugira, levante hipoteses e cite diretrizes conhecidas, mas a decisao final e SEMPRE do medico. Nunca prescreva de forma imperativa. Seja objetivo e de alto nivel tecnico.',
+      '','=== DADOS DO PACIENTE ==='];
+    p.push('Nome: '+(paciente.nome||'-'));
+    if(paciente.leito)p.push('Leito: '+paciente.leito);
+    if(paciente.setor)p.push('Setor: '+paciente.setor);
+    if(paciente.status_clinico)p.push('Status: '+paciente.status_clinico);
+    if(paciente.saps3_score)p.push('SAPS 3: '+paciente.saps3_score+' (mortalidade est. '+(paciente.saps3_mortalidade||'?')+'%)');
+    // últimas análises
+    var lista=(analises||[]).slice(0,3);
+    if(lista.length){
+      p.push('','=== ANALISES RECENTES ===');
+      lista.forEach(function(a,i){
+        var rj=a.resultado_json;
+        if(rj&&rj.resumo)p.push('Analise '+(i+1)+': '+rj.resumo);
+      });
+    }
+    return p.join('\n');
+  }
+
+  async function enviar(){
+    var texto=input.trim();
+    if(!texto||pensando)return;
+    setInput('');
+    // salva a msg do médico
+    var msgMed={paciente_id:paciente.id,autor:'medico',mensagem:texto,created_at:new Date().toISOString()};
+    setMsgs(function(p){return p.concat([msgMed]);});
+    db.from('conversas').insert(msgMed).then(function(){});
+    setPensando(true);
+    try{
+      // monta histórico pra IA (formato messages)
+      var historico=msgs.concat([msgMed]).map(function(m){
+        return {role:m.autor==='medico'?'user':'assistant',content:m.mensagem};
+      });
+      var resp=await fetch('/api/analyze',{
+        method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({mode:'consult',system:montarContexto(),messages:historico})
+      });
+      var data=await resp.json();
+      var textoIA='';
+      if(data&&data.content){
+        textoIA=data.content.filter(function(b){return b.type==='text';}).map(function(b){return b.text;}).join('\n').trim();
+      }
+      if(!textoIA)textoIA='(nao consegui responder agora, tente novamente)';
+      var msgIA={paciente_id:paciente.id,autor:'ia',mensagem:textoIA,created_at:new Date().toISOString()};
+      setMsgs(function(p){return p.concat([msgIA]);});
+      db.from('conversas').insert(msgIA).then(function(){});
+    }catch(e){
+      setMsgs(function(p){return p.concat([{paciente_id:paciente.id,autor:'ia',mensagem:'Erro de conexao: '+e.message,created_at:new Date().toISOString()}]);});
+    }finally{setPensando(false);}
+  }
+
+  return(
+    <div style={{position:'fixed',inset:0,background:'rgba(17,17,17,0.5)',zIndex:400,display:'flex',alignItems:'center',justifyContent:'center',padding:'14px'}} onClick={function(e){if(e.target===e.currentTarget)onClose();}}>
+      <div style={{width:'100%',maxWidth:'560px',height:'88vh',background:'#F5F5F3',borderRadius:'14px',display:'flex',flexDirection:'column',overflow:'hidden'}}>
+        {/* header */}
+        <div style={{background:'#fff',borderBottom:'1px solid #E7E7E4',padding:'13px 16px',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+          <div><div style={{fontSize:'14px',fontWeight:700,color:'#111'}}>💬 Conversa clinica</div><div style={{fontSize:'10px',color:'#9A9A97'}}>{paciente.nome}{paciente.leito?' · '+paciente.leito:''}</div></div>
+          <button onClick={onClose} style={{background:'transparent',border:'none',color:'#9A9A97',fontSize:'22px',cursor:'pointer',lineHeight:1}}>×</button>
+        </div>
+        {/* contexto */}
+        <div style={{background:'#FBF2DC',borderBottom:'1px solid #F0D9A0',padding:'8px 16px',fontSize:'9.5px',color:'#8A6D1F',lineHeight:1.4}}>🔒 A IA ja conhece este paciente (vitais, analises, SAPS 3). Conversa registrada.</div>
+        {/* mensagens */}
+        <div style={{flex:1,overflowY:'auto',padding:'16px',display:'flex',flexDirection:'column',gap:'11px'}}>
+          {carregando&&<div style={{textAlign:'center',color:'#9A9A97',fontSize:'11px',marginTop:'20px'}}>Carregando conversa...</div>}
+          {!carregando&&msgs.length===0&&<div style={{textAlign:'center',color:'#9A9A97',fontSize:'11px',marginTop:'20px',lineHeight:1.6}}>Comece a conversa.<br/>Pergunte sobre condutas, exames, protocolos ou o raciocinio do caso.</div>}
+          {msgs.map(function(m,i){
+            var ehMed=m.autor==='medico';
+            return(<div key={i} style={{display:'flex',flexDirection:ehMed?'row-reverse':'row',gap:'7px',maxWidth:'85%',alignSelf:ehMed?'flex-end':'flex-start'}}>
+              <div style={{width:'26px',height:'26px',borderRadius:'99px',flexShrink:0,display:'flex',alignItems:'center',justifyContent:'center',fontSize:'12px',background:ehMed?'#E7E7E4':'#E7F5EE'}}>{ehMed?'👨‍⚕️':'🩺'}</div>
+              <div style={{padding:'10px 12px',borderRadius:'13px',fontSize:'12.5px',lineHeight:1.5,whiteSpace:'pre-wrap',background:ehMed?'#1D9E75':'#fff',color:ehMed?'#fff':'#111',border:ehMed?'none':'1px solid #E7E7E4',borderTopRightRadius:ehMed?'4px':'13px',borderTopLeftRadius:ehMed?'13px':'4px'}}>{m.mensagem}</div>
+            </div>);
+          })}
+          {pensando&&<div style={{display:'flex',gap:'7px',alignSelf:'flex-start'}}><div style={{width:'26px',height:'26px',borderRadius:'99px',display:'flex',alignItems:'center',justifyContent:'center',fontSize:'12px',background:'#E7F5EE'}}>🩺</div><div style={{padding:'10px 12px',borderRadius:'13px',fontSize:'12px',color:'#9A9A97',background:'#fff',border:'1px solid #E7E7E4'}}>pensando...</div></div>}
+          <div ref={fimRef}></div>
+        </div>
+        {/* input */}
+        <div style={{background:'#fff',borderTop:'1px solid #E7E7E4',padding:'11px 13px',display:'flex',gap:'8px',alignItems:'center'}}>
+          <input value={input} onChange={function(e){setInput(e.target.value);}} onKeyDown={function(e){if(e.key==='Enter')enviar();}} placeholder="Escreva sua pergunta..." style={{flex:1,background:'#F5F5F3',border:'1px solid #E7E7E4',borderRadius:'99px',padding:'11px 15px',fontSize:'13px',color:'#111'}}/>
+          <button onClick={enviar} disabled={pensando} style={{background:'#1D9E75',border:'none',color:'#fff',width:'40px',height:'40px',borderRadius:'99px',fontSize:'15px',cursor:'pointer',flexShrink:0,opacity:pensando?0.6:1}}>➤</button>
+        </div>
+        <div style={{fontSize:'8.5px',color:'#B0ACA6',textAlign:'center',padding:'6px',background:'#fff'}}>Ferramenta de apoio. A decisao clinica e sempre do medico.</div>
+      </div>
+    </div>
+  );
+}
+
+
 function App(){
   const isMobile=useIsMobile();
   const [showMobileNav,setShowMobileNav]=useState(false);
@@ -958,6 +1068,7 @@ function App(){
   const [editS,setEditS]=useState('');
   const [showSaps3,setShowSaps3]=useState(false);
   const [showWelcome,setShowWelcome]=useState(false);
+  const [showChat,setShowChat]=useState(false);
 
   async function saveSaps3(payload){
     if(!sel)return;
@@ -1782,6 +1893,7 @@ function App(){
                   {patA.length>=2&&<button className="sbtn" onClick={()=>setScreen('evolution')} style={{padding:'11px',fontSize:'12px'}}>Evolucao</button>}
                   {patA.length>0&&<button className="sbtn" style={{color:'#374151',borderColor:'#374151',padding:'11px',fontSize:'12px'}} onClick={()=>setScreen('dashboard')}>Dashboard</button>}
                   <button className="sbtn" style={{color:sel.saps3_status==='completo'?'#1E9E63':sel.saps3_status==='parcial'?'#C98A00':'#374151',borderColor:sel.saps3_status==='completo'?'#1E9E63':sel.saps3_status==='parcial'?'#C98A00':'#E7E7E4',padding:'11px',fontSize:'12px'}} onClick={()=>setShowSaps3(true)}>{sel.saps3_score?'SAPS 3: '+sel.saps3_score:'SAPS 3'}</button>
+                  <button className="sbtn" style={{color:'#1E7A4E',borderColor:'#A9DCC0',background:'#E7F5EE',padding:'11px',fontSize:'12px'}} onClick={()=>setShowChat(true)}>💬 Conversa</button>
                   {!sel.desfecho&&<button className="sbtn" style={{color:'#9A9A97',padding:'11px',fontSize:'12px'}} onClick={()=>setShowDesfecho(true)}>Desfecho</button>}
                 </div>
               </div>
@@ -1812,6 +1924,7 @@ function App(){
                 {patA.length>=2&&!editPat&&<button className="sbtn" onClick={()=>setScreen('evolution')}>Evolucao</button>}
                 {patA.length>0&&!editPat&&<button className="sbtn" style={{color:'#374151',borderColor:'#374151'}} onClick={()=>setScreen('dashboard')}>Dashboard</button>}
                 {!editPat&&<button className="sbtn" style={{color:sel.saps3_status==='completo'?'#1E9E63':sel.saps3_status==='parcial'?'#C98A00':'#374151',borderColor:sel.saps3_status==='completo'?'#1E9E63':sel.saps3_status==='parcial'?'#C98A00':'#E7E7E4'}} onClick={()=>setShowSaps3(true)}>{sel.saps3_score?'SAPS 3: '+sel.saps3_score:'SAPS 3'}</button>}
+                {!editPat&&<button className="sbtn" style={{color:'#1E7A4E',borderColor:'#A9DCC0',background:'#E7F5EE'}} onClick={()=>setShowChat(true)}>💬 Conversa</button>}
                 {!editPat&&<button className="btn" onClick={()=>{setResult(null);setCaseText('');setSaved('');setScreen('new')}}>+ Nova analise</button>}
                 {!editPat&&!sel.desfecho&&<button className="sbtn" style={{color:'#9A9A97'}} onClick={()=>setShowDesfecho(true)}>Desfecho</button>}
                 {!editPat&&sel.desfecho&&<span style={{fontSize:'10px',fontWeight:700,padding:'3px 8px',borderRadius:'5px',color:sel.desfecho==='alta'?'#22c55e':sel.desfecho==='transferencia'?'#f59e0b':'#6B6F76',background:sel.desfecho==='alta'?'#E7F5EE':sel.desfecho==='transferencia'?'#FBF2DC':'#E7E7E4'}}>{sel.desfecho==='alta'?'Alta':sel.desfecho==='transferencia'?'Transferido':'Obito'}</span>}
@@ -2048,6 +2161,7 @@ function App(){
 
       {/* MODAL REGISTRAR DESFECHO */}
       {showWelcome&&<WelcomeModal onClose={function(){setShowWelcome(false);}}/>}
+      {showChat&&sel&&<ChatClinico paciente={sel} analises={patA} onClose={function(){setShowChat(false);}}/>}
       {showSaps3&&sel&&<SAPS3Form paciente={sel} ultimaAnalise={patA[0]} todasAnalises={patA} onClose={function(){setShowSaps3(false);}} onSave={saveSaps3}/>}
 
       {showDesfecho&&sel&&<div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.75)',zIndex:300,display:'flex',alignItems:'center',justifyContent:'center',padding:'20px'}} onClick={()=>setShowDesfecho(false)}>
